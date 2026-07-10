@@ -10,6 +10,7 @@ using ExileCore.PoEMemory.MemoryObjects;
 using ExileCore.Shared.Enums;
 using ExileCore.Shared.Interfaces;
 using ExileCore.Shared.Nodes;
+using Newtonsoft.Json;
 using SharpDX;
 
 namespace UniqueLogger
@@ -63,29 +64,26 @@ namespace UniqueLogger
             {
                 try
                 {
-                    var lines = File.ReadAllLines(mappingPath);
-                    var tempMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    var jsonText = File.ReadAllText(mappingPath);
+                    var parsedDict = JsonConvert.DeserializeObject<Dictionary<string, string>>(jsonText);
 
-                    foreach (var line in lines)
+                    if (parsedDict != null)
                     {
-                        var trimmed = line.Trim();
-                        if (trimmed.StartsWith("{") || trimmed.StartsWith("}")) continue;
+                        var tempMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-                        var parts = trimmed.Split(new[] { ':' }, 2);
-                        if (parts.Length == 2)
+                        foreach (var kvp in parsedDict)
                         {
-                            var key = parts[0].Trim(' ', '\t', '"', ',', '{', '}').Replace('\\', '/');
-                            var val = parts[1].Trim(' ', '\t', '"', ',', '{', '}');
+                            if (string.IsNullOrWhiteSpace(kvp.Key) || string.IsNullOrWhiteSpace(kvp.Value))
+                                continue;
 
-                            if (!string.IsNullOrEmpty(key) && !string.IsNullOrEmpty(val))
-                            {
-                                tempMapping[key] = val;
-                            }
+                            // Очищаем ключ от слешей, нуль-байтов и пробелов
+                            var cleanKey = CleanPathString(kvp.Key);
+                            tempMapping[cleanKey] = kvp.Value.Trim();
                         }
-                    }
 
-                    _artToUniqueMapping = tempMapping;
-                    LogMessage($"[UniqueLogger] Успешно загружено {_artToUniqueMapping.Count} уникальных предметов из базы.", 5);
+                        _artToUniqueMapping = tempMapping;
+                        LogMessage($"[UniqueLogger] Успешно загружено {_artToUniqueMapping.Count} уникальных предметов из базы.", 5);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -122,21 +120,46 @@ namespace UniqueLogger
 
                     var baseItemType = itemEntity.GetComponent<Base>()?.Name ?? "Unknown Base";
 
-                    var renderItem = itemEntity.GetComponent<RenderItem>();
-                    string uniqueName = "Unidentified";
+                    string uniqueName = null;
 
-                    if (renderItem != null && !string.IsNullOrEmpty(renderItem.ResourcePath))
+                    // 1. Если предмет уже опознан (Identified), берем название из компонентов Mods
+                    if (!string.IsNullOrEmpty(mods.UniqueName))
                     {
-                        var rawPath = renderItem.ResourcePath.Replace('\\', '/').Trim();
+                        uniqueName = CleanString(mods.UniqueName);
+                    }
 
-                        if (_artToUniqueMapping.TryGetValue(rawPath, out var cleanName))
+                    // 2. Если предмет неопознан, ищем совпадение 2D-арта в загруженной базе
+                    if (string.IsNullOrEmpty(uniqueName))
+                    {
+                        var renderItem = itemEntity.GetComponent<RenderItem>();
+                        if (renderItem != null && !string.IsNullOrEmpty(renderItem.ResourcePath))
                         {
-                            uniqueName = cleanName;
+                            var rawPath = CleanPathString(renderItem.ResourcePath);
+
+                            if (!string.IsNullOrEmpty(rawPath))
+                            {
+                                // Ищем совпадение в словаре
+                                if (_artToUniqueMapping.TryGetValue(rawPath, out var mappedName) && !string.IsNullOrEmpty(mappedName))
+                                {
+                                    uniqueName = mappedName;
+                                }
+                                else
+                                {
+                                    // Резервный вариант: имя файла картинки (напр. Headhunter из Art/2DItems/.../Headhunter.dds)
+                                    var fileName = Path.GetFileNameWithoutExtension(rawPath);
+                                    if (!string.IsNullOrEmpty(fileName))
+                                    {
+                                        uniqueName = fileName;
+                                    }
+                                }
+                            }
                         }
-                        else
-                        {
-                            uniqueName = Path.GetFileNameWithoutExtension(rawPath);
-                        }
+                    }
+
+                    // 3. Если все способы не дали результата
+                    if (string.IsNullOrEmpty(uniqueName))
+                    {
+                        uniqueName = "Unidentified";
                     }
 
                     uniqueItems.Add($"{baseItemType} ({uniqueName}) [Ground ID: {entity.Id}]");
@@ -168,6 +191,18 @@ namespace UniqueLogger
                     Graphics.DrawText("No uniques on the floor", drawPos + new SharpDX.Vector2(0, yOffset), Color.Gray);
                 }
             }
+        }
+
+        private static string CleanString(string str)
+        {
+            if (string.IsNullOrEmpty(str)) return string.Empty;
+            return str.Trim('\0', ' ', '\t', '\r', '\n');
+        }
+
+        private static string CleanPathString(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return string.Empty;
+            return path.Replace('\\', '/').Trim('\0', ' ', '\t', '\r', '\n', '/');
         }
     }
 }
