@@ -11,6 +11,7 @@ using ExileCore.Shared.Enums;
 using ExileCore.Shared.Interfaces;
 using ExileCore.Shared.Nodes;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using SharpDX;
 
 namespace UniqueLogger
@@ -24,8 +25,9 @@ namespace UniqueLogger
     {
         private Dictionary<string, string> _artToUniqueMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         
-        private const string MappingFileName = "uniqueArtMapping.json";
-        private const string MappingUrl = "https://raw.githubusercontent.com/DetectiveSquirrel/Ground-Items-With-Linq/master/uniqueArtMapping.default.json";
+        // Ссылка на полную и актуальную базу всех уникальных предметов PoE от сообщества разработчиков (RePoE)
+        private const string RePoEUrl = "https://repoe-fork.github.io/poe1/uniques.json";
+        private const string RePoEFileName = "repoeUniques.json";
 
         public override bool Initialise()
         {
@@ -40,54 +42,71 @@ namespace UniqueLogger
                 Directory.CreateDirectory(ConfigDirectory);
             }
 
-            var mappingPath = Path.Combine(ConfigDirectory, MappingFileName);
+            var repoePath = Path.Combine(ConfigDirectory, RePoEFileName);
 
-            if (!File.Exists(mappingPath))
+            // Если базы на диске нет, скачиваем её
+            if (!File.Exists(repoePath))
             {
                 try
                 {
-                    LogMessage("[UniqueLogger] Скачивание актуальной базы уникальных предметов...", 5);
+                    LogMessage("[UniqueLogger] Скачивание полной базы уникальных предметов (RePoE)...", 5);
                     using (var client = new HttpClient())
                     {
-                        var json = await client.GetStringAsync(MappingUrl);
-                        File.WriteAllText(mappingPath, json);
-                        LogMessage("[UniqueLogger] База успешно скачана и сохранена!", 5);
+                        var json = await client.GetStringAsync(RePoEUrl);
+                        File.WriteAllText(repoePath, json);
+                        LogMessage("[UniqueLogger] База RePoE успешно скачана и сохранена!", 5);
                     }
                 }
                 catch (Exception ex)
                 {
-                    LogError($"[UniqueLogger] Не удалось скачать базу: {ex.Message}", 10);
+                    LogError($"[UniqueLogger] Не удалось скачать базу RePoE: {ex.Message}", 10);
                 }
             }
 
-            if (File.Exists(mappingPath))
+            // Парсим скачанную базу RePoE
+            if (File.Exists(repoePath))
             {
                 try
                 {
-                    var jsonText = File.ReadAllText(mappingPath);
-                    var parsedDict = JsonConvert.DeserializeObject<Dictionary<string, string>>(jsonText);
+                    var jsonText = File.ReadAllText(repoePath);
+                    
+                    // RePoE имеет структуру: { "Unique Name": { "base_item": "...", "art": "path/to/art" } }
+                    var repoeData = JsonConvert.DeserializeObject<Dictionary<string, JObject>>(jsonText);
 
-                    if (parsedDict != null)
+                    if (repoeData != null)
                     {
                         var tempMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-                        foreach (var kvp in parsedDict)
+                        foreach (var kvp in repoeData)
                         {
-                            if (string.IsNullOrWhiteSpace(kvp.Key) || string.IsNullOrWhiteSpace(kvp.Value))
-                                continue;
+                            string uniqueName = kvp.Value["name"]?.ToString() ?? kvp.Key;
+                            string artPath = kvp.Value["art"]?.ToString();
 
-                            // Очищаем ключ от слешей, нуль-байтов и пробелов
-                            var cleanKey = CleanPathString(kvp.Key);
-                            tempMapping[cleanKey] = kvp.Value.Trim();
+                            if (!string.IsNullOrEmpty(uniqueName) && !string.IsNullOrEmpty(artPath))
+                            {
+                                var cleanArt = CleanPathString(artPath);
+                                if (!string.IsNullOrEmpty(cleanArt))
+                                {
+                                    // Сохраняем имя уника под его очищенным путем к арту
+                                    tempMapping[cleanArt] = uniqueName;
+
+                                    // В RePoE пути часто указаны без расширения ".dds" (например, "Art/2DItems/Amulets/Amulet36"),
+                                    // в то время как игра отдает их с расширением. Добавляем дубликат ключа с ".dds" для надежности.
+                                    if (!cleanArt.EndsWith(".dds", System.StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        tempMapping[cleanArt + ".dds"] = uniqueName;
+                                    }
+                                }
+                            }
                         }
 
                         _artToUniqueMapping = tempMapping;
-                        LogMessage($"[UniqueLogger] Успешно загружено {_artToUniqueMapping.Count} уникальных предметов из базы.", 5);
+                        LogMessage($"[UniqueLogger] Успешно загружено {_artToUniqueMapping.Count} уникальных предметов из RePoE базы.", 5);
                     }
                 }
                 catch (Exception ex)
                 {
-                    LogError($"[UniqueLogger] Ошибка чтения базы: {ex.Message}", 10);
+                    LogError($"[UniqueLogger] Ошибка чтения базы RePoE: {ex.Message}", 10);
                 }
             }
         }
@@ -122,13 +141,13 @@ namespace UniqueLogger
 
                     string uniqueName = null;
 
-                    // 1. Если предмет уже опознан (Identified), берем название из компонентов Mods
+                    // 1. Опознанный предмет (UniqueName берется из модов в памяти)
                     if (!string.IsNullOrEmpty(mods.UniqueName))
                     {
                         uniqueName = CleanString(mods.UniqueName);
                     }
 
-                    // 2. Если предмет неопознан, ищем совпадение 2D-арта в загруженной базе
+                    // 2. Неопознанный предмет (Ищем его 2D-арт в базе RePoE)
                     if (string.IsNullOrEmpty(uniqueName))
                     {
                         var renderItem = itemEntity.GetComponent<RenderItem>();
@@ -138,14 +157,13 @@ namespace UniqueLogger
 
                             if (!string.IsNullOrEmpty(rawPath))
                             {
-                                // Ищем совпадение в словаре
                                 if (_artToUniqueMapping.TryGetValue(rawPath, out var mappedName) && !string.IsNullOrEmpty(mappedName))
                                 {
                                     uniqueName = mappedName;
                                 }
                                 else
                                 {
-                                    // Резервный вариант: имя файла картинки (напр. Headhunter из Art/2DItems/.../Headhunter.dds)
+                                    // Резервный вариант: имя dds-файла
                                     var fileName = Path.GetFileNameWithoutExtension(rawPath);
                                     if (!string.IsNullOrEmpty(fileName))
                                     {
@@ -156,7 +174,6 @@ namespace UniqueLogger
                         }
                     }
 
-                    // 3. Если все способы не дали результата
                     if (string.IsNullOrEmpty(uniqueName))
                     {
                         uniqueName = "Unidentified";
