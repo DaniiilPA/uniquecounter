@@ -11,7 +11,6 @@ using ExileCore.Shared.Enums;
 using ExileCore.Shared.Interfaces;
 using ExileCore.Shared.Nodes;
 using SharpDX;
-using Newtonsoft.Json; 
 
 namespace UniqueLogger
 {
@@ -29,7 +28,6 @@ namespace UniqueLogger
 
         public override bool Initialise()
         {
-
             Task.Run(async () => await LoadMappingDatabaseAsync());
             return true;
         }
@@ -65,18 +63,29 @@ namespace UniqueLogger
             {
                 try
                 {
-                    var fileContent = File.ReadAllText(mappingPath);
-                    var parsed = JsonConvert.DeserializeObject<Dictionary<string, string>>(fileContent);
-                    if (parsed != null)
-                    {
+                    var lines = File.ReadAllLines(mappingPath);
+                    var tempMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-                        _artToUniqueMapping = parsed.ToDictionary(
-                            k => k.Key.Replace('\\', '/').Trim(),
-                            v => v.Value,
-                            StringComparer.OrdinalIgnoreCase
-                        );
-                        LogMessage($"[UniqueLogger] Успешно загружено {_artToUniqueMapping.Count} уникальных предметов из базы.", 5);
+                    foreach (var line in lines)
+                    {
+                        var trimmed = line.Trim();
+                        if (trimmed.StartsWith("{") || trimmed.StartsWith("}")) continue;
+
+                        var parts = trimmed.Split(new[] { ':' }, 2);
+                        if (parts.Length == 2)
+                        {
+                            var key = parts[0].Trim(' ', '\t', '"', ',', '{', '}').Replace('\\', '/');
+                            var val = parts[1].Trim(' ', '\t', '"', ',', '{', '}');
+
+                            if (!string.IsNullOrEmpty(key) && !string.IsNullOrEmpty(val))
+                            {
+                                tempMapping[key] = val;
+                            }
+                        }
                     }
+
+                    _artToUniqueMapping = tempMapping;
+                    LogMessage($"[UniqueLogger] Успешно загружено {_artToUniqueMapping.Count} уникальных предметов из базы.", 5);
                 }
                 catch (Exception ex)
                 {
@@ -118,10 +127,8 @@ namespace UniqueLogger
 
                     if (renderItem != null && !string.IsNullOrEmpty(renderItem.ResourcePath))
                     {
-               
                         var rawPath = renderItem.ResourcePath.Replace('\\', '/').Trim();
 
-    
                         if (_artToUniqueMapping.TryGetValue(rawPath, out var cleanName))
                         {
                             uniqueName = cleanName;
