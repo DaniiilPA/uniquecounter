@@ -8,8 +8,7 @@ using ExileCore.PoEMemory.MemoryObjects;
 using ExileCore.Shared.Enums;
 using ExileCore.Shared.Interfaces;
 using ExileCore.Shared.Nodes;
-using System.Numerics;
-using SharpDX; // Используем SharpDX для работы с цветом
+using SharpDX; // Подключаем SharpDX
 
 namespace UniqueLogger
 {
@@ -68,13 +67,13 @@ namespace UniqueLogger
             var windowRect = GameController?.Window?.GetWindowRectangleTimeCache;
             if (windowRect != null && uniqueItems.Count > 0)
             {
-                var drawPos = new Vector2(windowRect.Value.Width * 0.15f, windowRect.Value.Height * 0.15f);
+
+                var drawPos = new SharpDX.Vector2(windowRect.Value.Width * 0.15f, windowRect.Value.Height * 0.15f);
                 var yOffset = 0f;
 
                 foreach (var itemText in uniqueItems.Distinct())
                 {
-                    
-                    Graphics.DrawText(itemText, drawPos + new Vector2(0, yOffset), SharpDX.Color.White);
+                    Graphics.DrawText(itemText, drawPos + new SharpDX.Vector2(0, yOffset), Color.White);
                     yOffset += 20f; 
                 }
             }
