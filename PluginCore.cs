@@ -25,8 +25,8 @@ namespace UniqueLogger
     {
         private Dictionary<string, string> _artToUniqueMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         
-        // Ссылка на полную и актуальную базу всех уникальных предметов PoE от сообщества разработчиков (RePoE)
-        private const string RePoEUrl = "https://repoe-fork.github.io/poe1/uniques.json";
+        // Ссылка на актуальную базу уников RePoE
+        private const string RePoEUrl = "https://raw.githubusercontent.com/vvto/RePoE/master/RePoE/data/uniques.json";
         private const string RePoEFileName = "repoeUniques.json";
 
         public override bool Initialise()
@@ -44,7 +44,6 @@ namespace UniqueLogger
 
             var repoePath = Path.Combine(ConfigDirectory, RePoEFileName);
 
-            // Если базы на диске нет, скачиваем её
             if (!File.Exists(repoePath))
             {
                 try
@@ -54,7 +53,7 @@ namespace UniqueLogger
                     {
                         var json = await client.GetStringAsync(RePoEUrl);
                         File.WriteAllText(repoePath, json);
-                        LogMessage("[UniqueLogger] База RePoE успешно скачана и сохранена!", 5);
+                        LogMessage("[UniqueLogger] База RePoE успешно скачана!", 5);
                     }
                 }
                 catch (Exception ex)
@@ -63,14 +62,13 @@ namespace UniqueLogger
                 }
             }
 
-            // Парсим скачанную базу RePoE
             if (File.Exists(repoePath))
             {
                 try
                 {
                     var jsonText = File.ReadAllText(repoePath);
                     
-                    // RePoE имеет структуру: { "Unique Name": { "base_item": "...", "art": "path/to/art" } }
+                    // Парсим JSON как словарь объектов JObject
                     var repoeData = JsonConvert.DeserializeObject<Dictionary<string, JObject>>(jsonText);
 
                     if (repoeData != null)
@@ -79,34 +77,52 @@ namespace UniqueLogger
 
                         foreach (var kvp in repoeData)
                         {
-                            string uniqueName = kvp.Value["name"]?.ToString() ?? kvp.Key;
-                            string artPath = kvp.Value["art"]?.ToString();
+                            var itemData = kvp.Value;
+                            if (itemData == null) continue;
 
-                            if (!string.IsNullOrEmpty(uniqueName) && !string.IsNullOrEmpty(artPath))
+                            // Достаем имя уника (например, "The Coming Calamity" или "Bisco's Collar")
+                            string uniqueName = itemData["name"]?.ToString() ?? itemData["id"]?.ToString();
+                            if (string.IsNullOrEmpty(uniqueName)) continue;
+
+                            // Заходим в объект "visual_identity"
+                            var visualIdentity = itemData["visual_identity"] as JObject;
+                            if (visualIdentity != null)
                             {
-                                var cleanArt = CleanPathString(artPath);
-                                if (!string.IsNullOrEmpty(cleanArt))
+                                // Читаем путь к dds файлу
+                                string ddsFile = visualIdentity["dds_file"]?.ToString();
+                                if (!string.IsNullOrEmpty(ddsFile))
                                 {
-                                    // Сохраняем имя уника под его очищенным путем к арту
-                                    tempMapping[cleanArt] = uniqueName;
-
-                                    // В RePoE пути часто указаны без расширения ".dds" (например, "Art/2DItems/Amulets/Amulet36"),
-                                    // в то время как игра отдает их с расширением. Добавляем дубликат ключа с ".dds" для надежности.
-                                    if (!cleanArt.EndsWith(".dds", System.StringComparison.OrdinalIgnoreCase))
+                                    var cleanArt = CleanPathString(ddsFile);
+                                    if (!string.IsNullOrEmpty(cleanArt))
                                     {
-                                        tempMapping[cleanArt + ".dds"] = uniqueName;
+                                        tempMapping[cleanArt] = uniqueName;
+
+                                        // Добавляем вариант без .dds на случай, если игра вернет путь без расширения
+                                        if (cleanArt.EndsWith(".dds", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            var cleanArtNoExt = cleanArt.Substring(0, cleanArt.Length - 4);
+                                            tempMapping[cleanArtNoExt] = uniqueName;
+                                        }
                                     }
+                                }
+
+                                // Дополнительно можно привязаться к визуальному ID (например, "UniqueAmulet36")
+                                string visualId = visualIdentity["id"]?.ToString();
+                                if (!string.IsNullOrEmpty(visualId))
+                                {
+                                    var cleanVisualId = CleanString(visualId);
+                                    tempMapping[cleanVisualId] = uniqueName;
                                 }
                             }
                         }
 
                         _artToUniqueMapping = tempMapping;
-                        LogMessage($"[UniqueLogger] Успешно загружено {_artToUniqueMapping.Count} уникальных предметов из RePoE базы.", 5);
+                        LogMessage($"[UniqueLogger] Успешно загружено {_artToUniqueMapping.Count} соответствий уников из RePoE.", 5);
                     }
                 }
                 catch (Exception ex)
                 {
-                    LogError($"[UniqueLogger] Ошибка чтения базы RePoE: {ex.Message}", 10);
+                    LogError($"[UniqueLogger] Ошибка парсинга базы RePoE: {ex.Message}", 10);
                 }
             }
         }
@@ -141,13 +157,13 @@ namespace UniqueLogger
 
                     string uniqueName = null;
 
-                    // 1. Опознанный предмет (UniqueName берется из модов в памяти)
+                    // 1. Предмет опознан
                     if (!string.IsNullOrEmpty(mods.UniqueName))
                     {
                         uniqueName = CleanString(mods.UniqueName);
                     }
 
-                    // 2. Неопознанный предмет (Ищем его 2D-арт в базе RePoE)
+                    // 2. Предмет неопознан
                     if (string.IsNullOrEmpty(uniqueName))
                     {
                         var renderItem = itemEntity.GetComponent<RenderItem>();
@@ -157,15 +173,20 @@ namespace UniqueLogger
 
                             if (!string.IsNullOrEmpty(rawPath))
                             {
+                                // Ищем по полному пути картинки (например, "art/2ditems/amulets/biscoscollar.dds")
                                 if (_artToUniqueMapping.TryGetValue(rawPath, out var mappedName) && !string.IsNullOrEmpty(mappedName))
                                 {
                                     uniqueName = mappedName;
                                 }
                                 else
                                 {
-                                    // Резервный вариант: имя dds-файла
+                                    // Резервный вариант: пробуем найти по имени файла (например, "biscoscollar")
                                     var fileName = Path.GetFileNameWithoutExtension(rawPath);
-                                    if (!string.IsNullOrEmpty(fileName))
+                                    if (!string.IsNullOrEmpty(fileName) && _artToUniqueMapping.TryGetValue(fileName, out var fallbackName))
+                                    {
+                                        uniqueName = fallbackName;
+                                    }
+                                    else if (!string.IsNullOrEmpty(fileName))
                                     {
                                         uniqueName = fileName;
                                     }
