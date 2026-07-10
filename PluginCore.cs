@@ -177,6 +177,8 @@ namespace UniqueLogger
                         var mods = itemEntity.GetComponent<Mods>();
                         if (mods == null || mods.ItemRarity != ItemRarity.Unique) continue;
 
+                        if (mods.Identified) continue;
+
                         var baseItemType = itemEntity.GetComponent<Base>()?.Name ?? "Unknown Base";
 
                         string uniqueName = null;
