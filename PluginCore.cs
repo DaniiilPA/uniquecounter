@@ -22,6 +22,8 @@ namespace UniqueLogger
         public ToggleNode Enable { get; set; } = new ToggleNode(true);
         // Эндпоинт для отправки POST запросов
         public TextNode ServerEndpoint { get; set; } = new TextNode("http://127.0.0.1:8000/uniques");
+        // Поле для токена авторизации
+        public TextNode ApiKey { get; set; } = new TextNode("YOUR_API_KEY_HERE");
     }
 
     public class UniqueLogger : BaseSettingsPlugin<UniqueLoggerSettings>
@@ -29,7 +31,8 @@ namespace UniqueLogger
         // Потокобезопасный словарь для сопоставления текстур
         private ConcurrentDictionary<string, string> _artToUniqueMapping = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         
-        // Хранилище уникальных предметов на текущей локации (ID сущности -> (База, Название))
+        // Накопительное хранилище уникальных предметов на текущей локации (ID сущности -> (База, Название))
+        // Очищается только при смене локации в методе AreaChange
         private readonly ConcurrentDictionary<uint, (string BaseName, string UniqueName)> _trackedUniques = new ConcurrentDictionary<uint, (string, string)>();
 
         // Время следующей запланированной отправки данных
@@ -47,11 +50,11 @@ namespace UniqueLogger
             return true;
         }
 
-        // Автоматический сброс данных при смене локации
+        // Сброс накопленных данных при переходе на новую локацию
         public override void AreaChange(AreaInstance area)
         {
             _trackedUniques.Clear();
-            _nextSendTime = DateTime.UtcNow.AddSeconds(5); // Сдвигаем первую отправку на новой локации на 5 секунд
+            _nextSendTime = DateTime.UtcNow.AddSeconds(5); // Сдвигаем первую отправку на 5 секунд после захода на локацию
             base.AreaChange(area);
         }
 
@@ -230,17 +233,17 @@ namespace UniqueLogger
                             uniqueName = "Unidentified";
                         }
 
-                        // Добавляем найденный уникальный предмет в коллекцию отслеживания (исключает дубликаты по entity.Id)
+                        // Добавляем найденный уникальный предмет в накопительную коллекцию (дубликаты отсекаются по ID на полу)
                         _trackedUniques.TryAdd(entity.Id, (baseItemType, uniqueName));
                     }
                     catch (Exception)
                     {
-                        // Игнорируем точечные ошибки чтения памяти
+                        // Игнорируем точечные ошибки чтения памяти во время кадра
                     }
                 }
             }
 
-            // Отрисовка текста на экране
+            // Отрисовка накопленного списка на экране
             var windowRect = GameController?.Window?.GetWindowRectangleTimeCache;
             if (windowRect != null)
             {
@@ -252,7 +255,8 @@ namespace UniqueLogger
 
                 if (_trackedUniques.Count > 0)
                 {
-                    Graphics.DrawText("--- Unique Items on Floor ---", drawPos + new SharpDX.Vector2(0, yOffset), Color.White);
+                    // Отображаем накопительный список уникальных предметов для текущей сессии локации
+                    Graphics.DrawText($"--- Накоплено уников в зоне: {_trackedUniques.Count} ---", drawPos + new SharpDX.Vector2(0, yOffset), Color.Yellow);
                     yOffset += 20f;
 
                     foreach (var kvp in _trackedUniques)
@@ -264,7 +268,7 @@ namespace UniqueLogger
                 }
                 else
                 {
-                    Graphics.DrawText("No uniques on the floor", drawPos + new SharpDX.Vector2(0, yOffset), Color.Gray);
+                    Graphics.DrawText("В текущей зоне уникальные предметы еще не обнаружены", drawPos + new SharpDX.Vector2(0, yOffset), Color.Gray);
                 }
             }
 
@@ -273,14 +277,14 @@ namespace UniqueLogger
             {
                 _nextSendTime = DateTime.UtcNow.AddSeconds(5);
                 
-                // Вызываем отправку в фоновом режиме
+                // Вызываем асинхронную отправку в фоновом режиме
                 Task.Run(async () => await SendDataToServerAsync(areaHash, areaName));
             }
         }
 
         private async Task SendDataToServerAsync(uint areaHash, string areaName)
         {
-            // Если коллекция уников на текущей локации пуста, отправку можно пропустить
+            // Если в коллекции ничего нет, сетевой запрос не отправляется
             if (_trackedUniques.IsEmpty) return;
 
             // Формируем снимок данных на момент отправки во избежание Race Condition
@@ -299,12 +303,22 @@ namespace UniqueLogger
             try
             {
                 var json = JsonConvert.SerializeObject(payload);
-                using (var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"))
-                {
-                    var endpoint = Settings.ServerEndpoint?.Value;
-                    if (string.IsNullOrEmpty(endpoint)) return;
+                var endpoint = Settings.ServerEndpoint?.Value;
+                if (string.IsNullOrEmpty(endpoint)) return;
 
-                    var response = await HttpClientInstance.PostAsync(endpoint, content);
+                using (var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"))
+                using (var request = new HttpRequestMessage(HttpMethod.Post, endpoint))
+                {
+                    request.Content = content;
+
+                    // Если токен указан в настройках, добавляем его в заголовок X-API-Key
+                    var apiKey = Settings.ApiKey?.Value;
+                    if (!string.IsNullOrEmpty(apiKey) && apiKey != "YOUR_API_KEY_HERE")
+                    {
+                        request.Headers.Add("X-API-Key", apiKey);
+                    }
+
+                    var response = await HttpClientInstance.SendAsync(request);
                     if (!response.IsSuccessStatusCode)
                     {
                         LogError($"[UniqueLogger] Ошибка отправки на сервер: {response.StatusCode}", 3);
