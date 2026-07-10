@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Threading.Tasks;
 using ExileCore;
 using ExileCore.PoEMemory.Components;
 using ExileCore.PoEMemory.MemoryObjects;
@@ -9,6 +11,7 @@ using ExileCore.Shared.Enums;
 using ExileCore.Shared.Interfaces;
 using ExileCore.Shared.Nodes;
 using SharpDX;
+using Newtonsoft.Json; 
 
 namespace UniqueLogger
 {
@@ -19,39 +22,67 @@ namespace UniqueLogger
 
     public class UniqueLogger : BaseSettingsPlugin<UniqueLoggerSettings>
     {
-        private static readonly Dictionary<string, string> ArtToUniqueNameMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-
-            { "Amulet36", "Astramentis" },
-            { "Amulet37", "Carnage Heart" },
-            { "Amulet7Unique", "Eye of Chayula" },
-            { "Amulet5Unique", "Sidhebreath" },
-            { "Amulet5Unique2", "The Halcyon" },
-            { "AtzirisFoibleAlt", "Atziri's Foible" },
-            { "KaruiWardAlt", "Karui Ward" },
-            { "MarylenesFallacy", "Marylene's Fallacy" },
-            { "TearofExile", "Tear of Purity" },
-
-            { "Ring3Unique", "Doedre's Damning" },
-            { "Ring5Unique", "Kaom's Sign" },
-            { "Ring1Unique", "Andvarius" },
-            { "Ring1Unique2", "Berek's Grip" },
-            { "Ring2Unique", "Dream Fragments" },
-            { "Ring4Unique", "Perandus Signet" },
-            { "Ring11Unique", "Romira's Banquet" },
-            { "GiftsFromAbove", "Gifts from Above" },
-
-            { "Belt1", "Wurm's Molt" },
-            { "Belt2", "Perandus Blazon" },
-            { "Belt3", "Immortal Flesh" },
-            { "Belt5", "Bated Breath" },
-            { "Sunblast", "Sunblast" }
-            
-        };
+        private Dictionary<string, string> _artToUniqueMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        
+        private const string MappingFileName = "uniqueArtMapping.json";
+        private const string MappingUrl = "https://raw.githubusercontent.com/DetectiveSquirrel/Ground-Items-With-Linq/master/uniqueArtMapping.default.json";
 
         public override bool Initialise()
         {
+
+            Task.Run(async () => await LoadMappingDatabaseAsync());
             return true;
+        }
+
+        private async Task LoadMappingDatabaseAsync()
+        {
+            if (!Directory.Exists(ConfigDirectory))
+            {
+                Directory.CreateDirectory(ConfigDirectory);
+            }
+
+            var mappingPath = Path.Combine(ConfigDirectory, MappingFileName);
+
+            if (!File.Exists(mappingPath))
+            {
+                try
+                {
+                    LogMessage("[UniqueLogger] Скачивание актуальной базы уникальных предметов...", 5);
+                    using (var client = new HttpClient())
+                    {
+                        var json = await client.GetStringAsync(MappingUrl);
+                        File.WriteAllText(mappingPath, json);
+                        LogMessage("[UniqueLogger] База успешно скачана и сохранена!", 5);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogError($"[UniqueLogger] Не удалось скачать базу: {ex.Message}", 10);
+                }
+            }
+
+            if (File.Exists(mappingPath))
+            {
+                try
+                {
+                    var fileContent = File.ReadAllText(mappingPath);
+                    var parsed = JsonConvert.DeserializeObject<Dictionary<string, string>>(fileContent);
+                    if (parsed != null)
+                    {
+
+                        _artToUniqueMapping = parsed.ToDictionary(
+                            k => k.Key.Replace('\\', '/').Trim(),
+                            v => v.Value,
+                            StringComparer.OrdinalIgnoreCase
+                        );
+                        LogMessage($"[UniqueLogger] Успешно загружено {_artToUniqueMapping.Count} уникальных предметов из базы.", 5);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogError($"[UniqueLogger] Ошибка чтения базы: {ex.Message}", 10);
+                }
+            }
         }
 
         public override void Render()
@@ -87,23 +118,21 @@ namespace UniqueLogger
 
                     if (renderItem != null && !string.IsNullOrEmpty(renderItem.ResourcePath))
                     {
-                        var path = renderItem.ResourcePath;
-                        var fileName = Path.GetFileNameWithoutExtension(path);
-                        if (!string.IsNullOrEmpty(fileName))
-                        {
+               
+                        var rawPath = renderItem.ResourcePath.Replace('\\', '/').Trim();
 
-                            if (ArtToUniqueNameMapping.TryGetValue(fileName, out var cleanName))
-                            {
-                                uniqueName = cleanName;
-                            }
-                            else
-                            {
-                                uniqueName = fileName;
-                            }
+    
+                        if (_artToUniqueMapping.TryGetValue(rawPath, out var cleanName))
+                        {
+                            uniqueName = cleanName;
+                        }
+                        else
+                        {
+                            uniqueName = Path.GetFileNameWithoutExtension(rawPath);
                         }
                     }
 
-                    uniqueItems.Add($"{baseItemType} ({uniqueName}) [ID: {itemEntity.Id} | Ground ID: {entity.Id}]");
+                    uniqueItems.Add($"{baseItemType} ({uniqueName}) [Ground ID: {entity.Id}]");
                 }
             }
 
