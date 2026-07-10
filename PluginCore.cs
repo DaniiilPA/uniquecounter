@@ -25,7 +25,6 @@ namespace UniqueLogger
     {
         private Dictionary<string, string> _artToUniqueMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         
-        // Ссылка на актуальную базу уников RePoE
         private const string RePoEUrl = "https://raw.githubusercontent.com/vvto/RePoE/master/RePoE/data/uniques.json";
         private const string RePoEFileName = "repoeUniques.json";
 
@@ -67,8 +66,6 @@ namespace UniqueLogger
                 try
                 {
                     var jsonText = File.ReadAllText(repoePath);
-                    
-                    // Парсим JSON как словарь объектов JObject
                     var repoeData = JsonConvert.DeserializeObject<Dictionary<string, JObject>>(jsonText);
 
                     if (repoeData != null)
@@ -80,38 +77,47 @@ namespace UniqueLogger
                             var itemData = kvp.Value;
                             if (itemData == null) continue;
 
-                            // Достаем имя уника (например, "The Coming Calamity" или "Bisco's Collar")
                             string uniqueName = itemData["name"]?.ToString() ?? itemData["id"]?.ToString();
                             if (string.IsNullOrEmpty(uniqueName)) continue;
 
-                            // Заходим в объект "visual_identity"
                             var visualIdentity = itemData["visual_identity"] as JObject;
                             if (visualIdentity != null)
                             {
-                                // Читаем путь к dds файлу
                                 string ddsFile = visualIdentity["dds_file"]?.ToString();
                                 if (!string.IsNullOrEmpty(ddsFile))
                                 {
                                     var cleanArt = CleanPathString(ddsFile);
                                     if (!string.IsNullOrEmpty(cleanArt))
                                     {
-                                        tempMapping[cleanArt] = uniqueName;
+                                        bool isReplica = uniqueName.StartsWith("Replica ", StringComparison.OrdinalIgnoreCase) || 
+                                                         uniqueName.StartsWith("Копия ", StringComparison.OrdinalIgnoreCase);
 
-                                        // Добавляем вариант без .dds на случай, если игра вернет путь без расширения
-                                        if (cleanArt.EndsWith(".dds", StringComparison.OrdinalIgnoreCase))
+                                        // Если картинки еще нет в базе ИЛИ если старая запись была Репликой, а новая — нормальный уник, перезаписываем
+                                        if (!tempMapping.TryGetValue(cleanArt, out var existingName) || 
+                                            (!isReplica && existingName.StartsWith("Replica ", StringComparison.OrdinalIgnoreCase)))
                                         {
-                                            var cleanArtNoExt = cleanArt.Substring(0, cleanArt.Length - 4);
-                                            tempMapping[cleanArtNoExt] = uniqueName;
+                                            tempMapping[cleanArt] = uniqueName;
+
+                                            if (!cleanArt.EndsWith(".dds", StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                tempMapping[cleanArt + ".dds"] = uniqueName;
+                                            }
                                         }
                                     }
                                 }
 
-                                // Дополнительно можно привязаться к визуальному ID (например, "UniqueAmulet36")
                                 string visualId = visualIdentity["id"]?.ToString();
                                 if (!string.IsNullOrEmpty(visualId))
                                 {
                                     var cleanVisualId = CleanString(visualId);
-                                    tempMapping[cleanVisualId] = uniqueName;
+                                    bool isReplica = uniqueName.StartsWith("Replica ", StringComparison.OrdinalIgnoreCase) || 
+                                                     uniqueName.StartsWith("Копия ", StringComparison.OrdinalIgnoreCase);
+
+                                    if (!tempMapping.TryGetValue(cleanVisualId, out var existingName) || 
+                                        (!isReplica && existingName.StartsWith("Replica ", StringComparison.OrdinalIgnoreCase)))
+                                    {
+                                        tempMapping[cleanVisualId] = uniqueName;
+                                    }
                                 }
                             }
                         }
@@ -157,13 +163,13 @@ namespace UniqueLogger
 
                     string uniqueName = null;
 
-                    // 1. Предмет опознан
+                    // 1. Опознанный уник (здесь реплика определится правильно, так как имя берется из памяти)
                     if (!string.IsNullOrEmpty(mods.UniqueName))
                     {
                         uniqueName = CleanString(mods.UniqueName);
                     }
 
-                    // 2. Предмет неопознан
+                    // 2. Неопознанный уник
                     if (string.IsNullOrEmpty(uniqueName))
                     {
                         var renderItem = itemEntity.GetComponent<RenderItem>();
@@ -173,14 +179,12 @@ namespace UniqueLogger
 
                             if (!string.IsNullOrEmpty(rawPath))
                             {
-                                // Ищем по полному пути картинки (например, "art/2ditems/amulets/biscoscollar.dds")
                                 if (_artToUniqueMapping.TryGetValue(rawPath, out var mappedName) && !string.IsNullOrEmpty(mappedName))
                                 {
                                     uniqueName = mappedName;
                                 }
                                 else
                                 {
-                                    // Резервный вариант: пробуем найти по имени файла (например, "biscoscollar")
                                     var fileName = Path.GetFileNameWithoutExtension(rawPath);
                                     if (!string.IsNullOrEmpty(fileName) && _artToUniqueMapping.TryGetValue(fileName, out var fallbackName))
                                     {
