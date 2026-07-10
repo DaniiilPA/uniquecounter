@@ -19,6 +19,36 @@ namespace UniqueLogger
 
     public class UniqueLogger : BaseSettingsPlugin<UniqueLoggerSettings>
     {
+        private static readonly Dictionary<string, string> ArtToUniqueNameMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+
+            { "Amulet36", "Astramentis" },
+            { "Amulet37", "Carnage Heart" },
+            { "Amulet7Unique", "Eye of Chayula" },
+            { "Amulet5Unique", "Sidhebreath" },
+            { "Amulet5Unique2", "The Halcyon" },
+            { "AtzirisFoibleAlt", "Atziri's Foible" },
+            { "KaruiWardAlt", "Karui Ward" },
+            { "MarylenesFallacy", "Marylene's Fallacy" },
+            { "TearofExile", "Tear of Purity" },
+
+            { "Ring3Unique", "Doedre's Damning" },
+            { "Ring5Unique", "Kaom's Sign" },
+            { "Ring1Unique", "Andvarius" },
+            { "Ring1Unique2", "Berek's Grip" },
+            { "Ring2Unique", "Dream Fragments" },
+            { "Ring4Unique", "Perandus Signet" },
+            { "Ring11Unique", "Romira's Banquet" },
+            { "GiftsFromAbove", "Gifts from Above" },
+
+            { "Belt1", "Wurm's Molt" },
+            { "Belt2", "Perandus Blazon" },
+            { "Belt3", "Immortal Flesh" },
+            { "Belt5", "Bated Breath" },
+            { "Sunblast", "Sunblast" }
+            
+        };
+
         public override bool Initialise()
         {
             return true;
@@ -61,7 +91,15 @@ namespace UniqueLogger
                         var fileName = Path.GetFileNameWithoutExtension(path);
                         if (!string.IsNullOrEmpty(fileName))
                         {
-                            uniqueName = fileName;
+
+                            if (ArtToUniqueNameMapping.TryGetValue(fileName, out var cleanName))
+                            {
+                                uniqueName = cleanName;
+                            }
+                            else
+                            {
+                                uniqueName = fileName;
+                            }
                         }
                     }
 
