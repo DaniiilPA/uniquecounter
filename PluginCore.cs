@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.IO;
 using System.Linq;
 using ExileCore;
@@ -10,6 +9,7 @@ using ExileCore.Shared.Enums;
 using ExileCore.Shared.Interfaces;
 using ExileCore.Shared.Nodes;
 using System.Numerics;
+using SharpDX; // Используем SharpDX для работы с цветом
 
 namespace UniqueLogger
 {
@@ -73,8 +73,9 @@ namespace UniqueLogger
 
                 foreach (var itemText in uniqueItems.Distinct())
                 {
-                    Graphics.DrawText(itemText, drawPos + new Vector2(0, yOffset), Color.White, 15);
-                    yOffset += 18f; 
+                    
+                    Graphics.DrawText(itemText, drawPos + new Vector2(0, yOffset), SharpDX.Color.White);
+                    yOffset += 20f; 
                 }
             }
         }
