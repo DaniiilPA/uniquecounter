@@ -20,14 +20,21 @@ namespace UniqueLogger
     public class UniqueLoggerSettings : ISettings
     {
         public ToggleNode Enable { get; set; } = new ToggleNode(true);
+        // Эндпоинт для отправки POST запросов
+        public TextNode ServerEndpoint { get; set; } = new TextNode("http://127.0.0.1:8000/uniques");
     }
 
     public class UniqueLogger : BaseSettingsPlugin<UniqueLoggerSettings>
     {
-        // Потокобезопасный словарь для защиты от одновременного чтения и записи
+        // Потокобезопасный словарь для сопоставления текстур
         private ConcurrentDictionary<string, string> _artToUniqueMapping = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         
-        // HttpClient объявляется один раз для всего жизненного цикла плагина
+        // Хранилище уникальных предметов на текущей локации (ID сущности -> (База, Название))
+        private readonly ConcurrentDictionary<uint, (string BaseName, string UniqueName)> _trackedUniques = new ConcurrentDictionary<uint, (string, string)>();
+
+        // Время следующей запланированной отправки данных
+        private DateTime _nextSendTime = DateTime.UtcNow;
+
         private static readonly HttpClient HttpClientInstance = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
 
         private const string RePoEUrl = "https://raw.githubusercontent.com/vvto/RePoE/master/RePoE/data/uniques.json";
@@ -35,17 +42,21 @@ namespace UniqueLogger
 
         public override bool Initialise()
         {
-            // Инициализируем базовый локальный список уников на случай проблем с интернетом
             LoadHardcodedFallbacks();
-            
-            // Асинхронно загружаем полную базу
             Task.Run(async () => await LoadMappingDatabaseAsync());
             return true;
         }
 
+        // Автоматический сброс данных при смене локации
+        public override void AreaChange(AreaInstance area)
+        {
+            _trackedUniques.Clear();
+            _nextSendTime = DateTime.UtcNow.AddSeconds(5); // Сдвигаем первую отправку на новой локации на 5 секунд
+            base.AreaChange(area);
+        }
+
         private void LoadHardcodedFallbacks()
         {
-            // Базовый список на случай отсутствия сети (самые дорогие предметы)
             _artToUniqueMapping["art/2ditems/belts/heavybeltunique"] = "Mageblood";
             _artToUniqueMapping["art/2ditems/belts/headhunter"] = "Headhunter";
             _artToUniqueMapping["art/2ditems/shields/thesquire"] = "The Squire";
@@ -136,7 +147,6 @@ namespace UniqueLogger
                             }
                         }
 
-                        // Потокобезопасно обновляем основной словарь
                         _artToUniqueMapping = new ConcurrentDictionary<string, string>(tempMapping, StringComparer.OrdinalIgnoreCase);
                         LogMessage($"[UniqueLogger] Успешно загружено {_artToUniqueMapping.Count} соответствий из RePoE.", 5);
                     }
@@ -154,14 +164,11 @@ namespace UniqueLogger
 
             var currentArea = GameController?.Area?.CurrentArea;
             string areaName = currentArea?.Name ?? "Unknown Area";
-            string areaHash = currentArea?.Hash.ToString() ?? "Unknown Hash";
-
-            var uniqueItems = new List<string>();
+            uint areaHash = currentArea?.Hash ?? 0;
 
             var entities = GameController?.EntityListWrapper?.Entities;
             if (entities != null)
             {
-                // ToList() защищает от изменения коллекции во время перебора элементов кадром игры
                 foreach (var entity in entities.ToList())
                 {
                     try
@@ -180,7 +187,6 @@ namespace UniqueLogger
                         if (mods.Identified) continue;
 
                         var baseItemType = itemEntity.GetComponent<Base>()?.Name ?? "Unknown Base";
-
                         string uniqueName = null;
 
                         // 1. Опознанный уник
@@ -224,15 +230,17 @@ namespace UniqueLogger
                             uniqueName = "Unidentified";
                         }
 
-                        uniqueItems.Add($"{baseItemType} ({uniqueName}) [Ground ID: {entity.Id}]");
+                        // Добавляем найденный уникальный предмет в коллекцию отслеживания (исключает дубликаты по entity.Id)
+                        _trackedUniques.TryAdd(entity.Id, (baseItemType, uniqueName));
                     }
                     catch (Exception)
                     {
-                        // Игнорируем точечные ошибки чтения памяти для сущностей, которые исчезли/изменились прямо в процессе кадра
+                        // Игнорируем точечные ошибки чтения памяти
                     }
                 }
             }
 
+            // Отрисовка текста на экране
             var windowRect = GameController?.Window?.GetWindowRectangleTimeCache;
             if (windowRect != null)
             {
@@ -242,13 +250,14 @@ namespace UniqueLogger
                 Graphics.DrawText($"Area: {areaName} | Area ID: {areaHash}", drawPos, Color.White);
                 yOffset += 22f;
 
-                if (uniqueItems.Count > 0)
+                if (_trackedUniques.Count > 0)
                 {
                     Graphics.DrawText("--- Unique Items on Floor ---", drawPos + new SharpDX.Vector2(0, yOffset), Color.White);
                     yOffset += 20f;
 
-                    foreach (var itemText in uniqueItems.Distinct())
+                    foreach (var kvp in _trackedUniques)
                     {
+                        string itemText = $"{kvp.Value.BaseName} ({kvp.Value.UniqueName}) [Ground ID: {kvp.Key}]";
                         Graphics.DrawText(itemText, drawPos + new SharpDX.Vector2(0, yOffset), Color.White);
                         yOffset += 20f; 
                     }
@@ -257,6 +266,54 @@ namespace UniqueLogger
                 {
                     Graphics.DrawText("No uniques on the floor", drawPos + new SharpDX.Vector2(0, yOffset), Color.Gray);
                 }
+            }
+
+            // Логика периодической отправки данных раз в 5 секунд (неблокирующий вызов)
+            if (DateTime.UtcNow >= _nextSendTime)
+            {
+                _nextSendTime = DateTime.UtcNow.AddSeconds(5);
+                
+                // Вызываем отправку в фоновом режиме
+                Task.Run(async () => await SendDataToServerAsync(areaHash, areaName));
+            }
+        }
+
+        private async Task SendDataToServerAsync(uint areaHash, string areaName)
+        {
+            // Если коллекция уников на текущей локации пуста, отправку можно пропустить
+            if (_trackedUniques.IsEmpty) return;
+
+            // Формируем снимок данных на момент отправки во избежание Race Condition
+            var uniquesSnapshot = _trackedUniques.ToDictionary(
+                kvp => kvp.Key.ToString(),
+                kvp => new List<string> { kvp.Value.BaseName, kvp.Value.UniqueName }
+            );
+
+            var payload = new
+            {
+                instance_id = areaHash,
+                area_name = areaName,
+                uniques = uniquesSnapshot
+            };
+
+            try
+            {
+                var json = JsonConvert.SerializeObject(payload);
+                using (var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"))
+                {
+                    var endpoint = Settings.ServerEndpoint?.Value;
+                    if (string.IsNullOrEmpty(endpoint)) return;
+
+                    var response = await HttpClientInstance.PostAsync(endpoint, content);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        LogError($"[UniqueLogger] Ошибка отправки на сервер: {response.StatusCode}", 3);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogError($"[UniqueLogger] Ошибка сети при отправке: {ex.Message}", 3);
             }
         }
 
