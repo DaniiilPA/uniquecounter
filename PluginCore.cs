@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -23,15 +24,32 @@ namespace UniqueLogger
 
     public class UniqueLogger : BaseSettingsPlugin<UniqueLoggerSettings>
     {
-        private Dictionary<string, string> _artToUniqueMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        // Потокобезопасный словарь для защиты от одновременного чтения и записи
+        private ConcurrentDictionary<string, string> _artToUniqueMapping = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         
+        // HttpClient объявляется один раз для всего жизненного цикла плагина
+        private static readonly HttpClient HttpClientInstance = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+
         private const string RePoEUrl = "https://raw.githubusercontent.com/vvto/RePoE/master/RePoE/data/uniques.json";
         private const string RePoEFileName = "repoeUniques.json";
 
         public override bool Initialise()
         {
+            // Инициализируем базовый локальный список уников на случай проблем с интернетом
+            LoadHardcodedFallbacks();
+            
+            // Асинхронно загружаем полную базу
             Task.Run(async () => await LoadMappingDatabaseAsync());
             return true;
+        }
+
+        private void LoadHardcodedFallbacks()
+        {
+            // Базовый список на случай отсутствия сети (самые дорогие предметы)
+            _artToUniqueMapping["art/2ditems/belts/heavybeltunique"] = "Mageblood";
+            _artToUniqueMapping["art/2ditems/belts/headhunter"] = "Headhunter";
+            _artToUniqueMapping["art/2ditems/shields/thesquire"] = "The Squire";
+            _artToUniqueMapping["art/2ditems/rings/kalandras_touch"] = "Kalandra's Touch";
         }
 
         private async Task LoadMappingDatabaseAsync()
@@ -47,17 +65,14 @@ namespace UniqueLogger
             {
                 try
                 {
-                    LogMessage("[UniqueLogger] Скачивание полной базы уникальных предметов (RePoE)...", 5);
-                    using (var client = new HttpClient())
-                    {
-                        var json = await client.GetStringAsync(RePoEUrl);
-                        File.WriteAllText(repoePath, json);
-                        LogMessage("[UniqueLogger] База RePoE успешно скачана!", 5);
-                    }
+                    LogMessage("[UniqueLogger] Скачивание базы уникальных предметов (RePoE)...", 5);
+                    var json = await HttpClientInstance.GetStringAsync(RePoEUrl);
+                    await File.WriteAllTextAsync(repoePath, json);
+                    LogMessage("[UniqueLogger] База RePoE успешно сохранена!", 5);
                 }
                 catch (Exception ex)
                 {
-                    LogError($"[UniqueLogger] Не удалось скачать базу RePoE: {ex.Message}", 10);
+                    LogError($"[UniqueLogger] Не удалось скачать базу RePoE (работают локальные фолбеки): {ex.Message}", 10);
                 }
             }
 
@@ -65,7 +80,7 @@ namespace UniqueLogger
             {
                 try
                 {
-                    var jsonText = File.ReadAllText(repoePath);
+                    var jsonText = await File.ReadAllTextAsync(repoePath);
                     var repoeData = JsonConvert.DeserializeObject<Dictionary<string, JObject>>(jsonText);
 
                     if (repoeData != null)
@@ -92,7 +107,6 @@ namespace UniqueLogger
                                         bool isReplica = uniqueName.StartsWith("Replica ", StringComparison.OrdinalIgnoreCase) || 
                                                          uniqueName.StartsWith("Копия ", StringComparison.OrdinalIgnoreCase);
 
-                                        // Если картинки еще нет в базе ИЛИ если старая запись была Репликой, а новая — нормальный уник, перезаписываем
                                         if (!tempMapping.TryGetValue(cleanArt, out var existingName) || 
                                             (!isReplica && existingName.StartsWith("Replica ", StringComparison.OrdinalIgnoreCase)))
                                         {
@@ -122,13 +136,14 @@ namespace UniqueLogger
                             }
                         }
 
-                        _artToUniqueMapping = tempMapping;
-                        LogMessage($"[UniqueLogger] Успешно загружено {_artToUniqueMapping.Count} соответствий уников из RePoE.", 5);
+                        // Потокобезопасно обновляем основной словарь
+                        _artToUniqueMapping = new ConcurrentDictionary<string, string>(tempMapping, StringComparer.OrdinalIgnoreCase);
+                        LogMessage($"[UniqueLogger] Успешно загружено {_artToUniqueMapping.Count} соответствий из RePoE.", 5);
                     }
                 }
                 catch (Exception ex)
                 {
-                    LogError($"[UniqueLogger] Ошибка парсинга базы RePoE: {ex.Message}", 10);
+                    LogError($"[UniqueLogger] Ошибка чтения/парсинга базы RePoE: {ex.Message}", 10);
                 }
             }
         }
@@ -146,65 +161,73 @@ namespace UniqueLogger
             var entities = GameController?.EntityListWrapper?.Entities;
             if (entities != null)
             {
-                foreach (var entity in entities)
+                // ToList() защищает от изменения коллекции во время перебора элементов кадром игры
+                foreach (var entity in entities.ToList())
                 {
-                    if (entity == null || !entity.IsValid) continue;
-
-                    var worldItem = entity.GetComponent<WorldItem>();
-                    if (worldItem == null) continue;
-
-                    var itemEntity = worldItem.ItemEntity;
-                    if (itemEntity == null || !itemEntity.IsValid) continue;
-
-                    var mods = itemEntity.GetComponent<Mods>();
-                    if (mods == null || mods.ItemRarity != ItemRarity.Unique) continue;
-
-                    var baseItemType = itemEntity.GetComponent<Base>()?.Name ?? "Unknown Base";
-
-                    string uniqueName = null;
-
-                    // 1. Опознанный уник (здесь реплика определится правильно, так как имя берется из памяти)
-                    if (!string.IsNullOrEmpty(mods.UniqueName))
+                    try
                     {
-                        uniqueName = CleanString(mods.UniqueName);
-                    }
+                        if (entity == null || !entity.IsValid) continue;
 
-                    // 2. Неопознанный уник
-                    if (string.IsNullOrEmpty(uniqueName))
-                    {
-                        var renderItem = itemEntity.GetComponent<RenderItem>();
-                        if (renderItem != null && !string.IsNullOrEmpty(renderItem.ResourcePath))
+                        var worldItem = entity.GetComponent<WorldItem>();
+                        if (worldItem == null) continue;
+
+                        var itemEntity = worldItem.ItemEntity;
+                        if (itemEntity == null || !itemEntity.IsValid) continue;
+
+                        var mods = itemEntity.GetComponent<Mods>();
+                        if (mods == null || mods.ItemRarity != ItemRarity.Unique) continue;
+
+                        var baseItemType = itemEntity.GetComponent<Base>()?.Name ?? "Unknown Base";
+
+                        string uniqueName = null;
+
+                        // 1. Опознанный уник
+                        if (!string.IsNullOrEmpty(mods.UniqueName))
                         {
-                            var rawPath = CleanPathString(renderItem.ResourcePath);
+                            uniqueName = CleanString(mods.UniqueName);
+                        }
 
-                            if (!string.IsNullOrEmpty(rawPath))
+                        // 2. Неопознанный уник
+                        if (string.IsNullOrEmpty(uniqueName))
+                        {
+                            var renderItem = itemEntity.GetComponent<RenderItem>();
+                            if (renderItem != null && !string.IsNullOrEmpty(renderItem.ResourcePath))
                             {
-                                if (_artToUniqueMapping.TryGetValue(rawPath, out var mappedName) && !string.IsNullOrEmpty(mappedName))
+                                var rawPath = CleanPathString(renderItem.ResourcePath);
+
+                                if (!string.IsNullOrEmpty(rawPath))
                                 {
-                                    uniqueName = mappedName;
-                                }
-                                else
-                                {
-                                    var fileName = Path.GetFileNameWithoutExtension(rawPath);
-                                    if (!string.IsNullOrEmpty(fileName) && _artToUniqueMapping.TryGetValue(fileName, out var fallbackName))
+                                    if (_artToUniqueMapping.TryGetValue(rawPath, out var mappedName) && !string.IsNullOrEmpty(mappedName))
                                     {
-                                        uniqueName = fallbackName;
+                                        uniqueName = mappedName;
                                     }
-                                    else if (!string.IsNullOrEmpty(fileName))
+                                    else
                                     {
-                                        uniqueName = fileName;
+                                        var fileName = Path.GetFileNameWithoutExtension(rawPath);
+                                        if (!string.IsNullOrEmpty(fileName) && _artToUniqueMapping.TryGetValue(fileName, out var fallbackName))
+                                        {
+                                            uniqueName = fallbackName;
+                                        }
+                                        else if (!string.IsNullOrEmpty(fileName))
+                                        {
+                                            uniqueName = fileName;
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    if (string.IsNullOrEmpty(uniqueName))
+                        if (string.IsNullOrEmpty(uniqueName))
+                        {
+                            uniqueName = "Unidentified";
+                        }
+
+                        uniqueItems.Add($"{baseItemType} ({uniqueName}) [Ground ID: {entity.Id}]");
+                    }
+                    catch (Exception)
                     {
-                        uniqueName = "Unidentified";
+                        // Игнорируем точечные ошибки чтения памяти для сущностей, которые исчезли/изменились прямо в процессе кадра
                     }
-
-                    uniqueItems.Add($"{baseItemType} ({uniqueName}) [Ground ID: {entity.Id}]");
                 }
             }
 
