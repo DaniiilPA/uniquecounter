@@ -39,7 +39,7 @@ namespace UniqueLogger
 
         private static readonly HttpClient HttpClientInstance = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
 
-        private const string RePoEUrl = "https://raw.githubusercontent.com/vvto/RePoE/master/RePoE/data/uniques.json";
+        private const string RePoEUrl = "https://repoe-fork.github.io/uniques.json";
         private const string RePoEFileName = "repoeUniques.json";
 
         public override bool Initialise()
