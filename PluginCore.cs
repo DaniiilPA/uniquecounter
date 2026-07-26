@@ -13,7 +13,6 @@ using ExileCore.Shared.Interfaces;
 using ExileCore.Shared.Nodes;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using SharpDX;
 
 namespace UniqueLogger
 {
@@ -240,35 +239,6 @@ namespace UniqueLogger
                     {
                         // Игнорируем точечные ошибки чтения памяти во время кадра
                     }
-                }
-            }
-
-            // Отрисовка накопленного списка на экране
-            var windowRect = GameController?.Window?.GetWindowRectangleTimeCache;
-            if (windowRect != null)
-            {
-                var drawPos = new SharpDX.Vector2(windowRect.Value.Width * 0.15f, windowRect.Value.Height * 0.15f);
-                var yOffset = 0f;
-
-                Graphics.DrawText($"Area: {areaName} | Area ID: {areaHash}", drawPos, Color.White);
-                yOffset += 22f;
-
-                if (_trackedUniques.Count > 0)
-                {
-                    // Отображаем накопительный список уникальных предметов для текущей сессии локации
-                    Graphics.DrawText($"--- Накоплено уников в зоне: {_trackedUniques.Count} ---", drawPos + new SharpDX.Vector2(0, yOffset), Color.Yellow);
-                    yOffset += 20f;
-
-                    foreach (var kvp in _trackedUniques)
-                    {
-                        string itemText = $"{kvp.Value.BaseName} ({kvp.Value.UniqueName}) [Ground ID: {kvp.Key}]";
-                        Graphics.DrawText(itemText, drawPos + new SharpDX.Vector2(0, yOffset), Color.White);
-                        yOffset += 20f; 
-                    }
-                }
-                else
-                {
-                    Graphics.DrawText("В текущей зоне уникальные предметы еще не обнаружены", drawPos + new SharpDX.Vector2(0, yOffset), Color.Gray);
                 }
             }
 
