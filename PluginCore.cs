@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Numerics;
 using System.Threading.Tasks;
 using ExileCore;
 using ExileCore.PoEMemory.Components;
@@ -13,16 +14,37 @@ using ExileCore.Shared.Interfaces;
 using ExileCore.Shared.Nodes;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using SharpDX;
 
 namespace UniqueLogger
 {
     public class UniqueLoggerSettings : ISettings
     {
         public ToggleNode Enable { get; set; } = new ToggleNode(true);
-        // Эндпоинт для отправки POST запросов
+        
+        // Эндпоинт для отправки POST запросов (сборщик уников с карты)
         public TextNode ServerEndpoint { get; set; } = new TextNode("http://127.0.0.1:8000/uniques");
-        // Поле для токена авторизации
+        
+        // Поле для токена авторизации сборщика
         public TextNode ApiKey { get; set; } = new TextNode("YOUR_API_KEY_HERE");
+
+        // Эндпоинт для получения общей статистики (GET)
+        public TextNode StatsEndpoint { get; set; } = new TextNode("");
+        
+        // Поле для токена авторизации статистики (X-API-Key)
+        public TextNode StatsApiKey { get; set; } = new TextNode("");
+    }
+
+    public class StatsResponse
+    {
+        [JsonProperty("grand_total")]
+        public int GrandTotal { get; set; }
+
+        [JsonProperty("t0_grand_total")]
+        public Dictionary<string, int> T0GrandTotal { get; set; } = new Dictionary<string, int>();
+
+        [JsonProperty("t1_grand_total")]
+        public Dictionary<string, int> T1GrandTotal { get; set; } = new Dictionary<string, int>();
     }
 
     public class UniqueLogger : BaseSettingsPlugin<UniqueLoggerSettings>
@@ -31,16 +53,20 @@ namespace UniqueLogger
         private ConcurrentDictionary<string, string> _artToUniqueMapping = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         
         // Накопительное хранилище уникальных предметов на текущей локации (ID сущности -> (База, Название))
-        // Очищается только при смене локации в методе AreaChange
         private readonly ConcurrentDictionary<uint, (string BaseName, string UniqueName)> _trackedUniques = new ConcurrentDictionary<uint, (string, string)>();
 
-        // Время следующей запланированной отправки данных
+        // Время следующей запланированной отправки собранных данных
         private DateTime _nextSendTime = DateTime.UtcNow;
 
         private static readonly HttpClient HttpClientInstance = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
 
         private const string RePoEUrl = "https://repoe-fork.github.io/uniques.json";
         private const string RePoEFileName = "repoeUniques.json";
+
+        // Переменные для логики запросов статистики (раз в 3 секунды)
+        private DateTime _nextStatsFetchTime = DateTime.UtcNow;
+        private bool _isFetchingStats = false;
+        private StatsResponse _latestStats = null;
 
         public override bool Initialise()
         {
@@ -242,13 +268,129 @@ namespace UniqueLogger
                 }
             }
 
-            // Логика периодической отправки данных раз в 5 секунд (неблокирующий вызов)
+            // Логика периодической отправки собранных данных на основной сервер (раз в 5 секунд)
             if (DateTime.UtcNow >= _nextSendTime)
             {
                 _nextSendTime = DateTime.UtcNow.AddSeconds(5);
-                
-                // Вызываем асинхронную отправку в фоновом режиме
                 Task.Run(async () => await SendDataToServerAsync(areaHash, areaName));
+            }
+
+            // --- НОВАЯ ЛОГИКА СТАТИСТИКИ ---
+            var statsEndpoint = Settings.StatsEndpoint?.Value;
+            var statsApiKey = Settings.StatsApiKey?.Value;
+
+            // Если поля настроек пустые, ничего не происходит
+            bool hasStatsConfig = !string.IsNullOrEmpty(statsEndpoint) && !string.IsNullOrEmpty(statsApiKey);
+
+            if (hasStatsConfig)
+            {
+                // Запрашиваем обновление каждые 3 секунды в фоновом режиме
+                if (DateTime.UtcNow >= _nextStatsFetchTime && !_isFetchingStats)
+                {
+                    _isFetchingStats = true;
+                    _nextStatsFetchTime = DateTime.UtcNow.AddSeconds(3);
+                    Task.Run(async () => await FetchStatsAsync(statsEndpoint, statsApiKey));
+                }
+
+                // Отрисовываем текущие имеющиеся данные
+                DrawStats();
+            }
+        }
+
+        private async Task FetchStatsAsync(string endpoint, string apiKey)
+        {
+            try
+            {
+                // Добавляем параметр ?maps=1 или &maps=1 в зависимости от исходного URL
+                string separator = endpoint.Contains("?") ? "&" : "?";
+                string finalUrl = $"{endpoint}{separator}maps=1";
+
+                using (var request = new HttpRequestMessage(HttpMethod.Get, finalUrl))
+                {
+                    if (!string.IsNullOrEmpty(apiKey))
+                    {
+                        request.Headers.Add("X-API-Key", apiKey);
+                    }
+
+                    var response = await HttpClientInstance.SendAsync(request);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var json = await response.Content.ReadAsStringAsync();
+                        var stats = JsonConvert.DeserializeObject<StatsResponse>(json);
+                        if (stats != null)
+                        {
+                            // Атомарное присвоение ссылки на новый объект во избежание Race Condition
+                            _latestStats = stats;
+                        }
+                    }
+                    else
+                    {
+                        LogError($"[UniqueLogger] Ошибка при получении статистики: {response.StatusCode}", 3);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogError($"[UniqueLogger] Сетевая ошибка при запросе статистики: {ex.Message}", 3);
+            }
+            finally
+            {
+                _isFetchingStats = false;
+            }
+        }
+
+        private void DrawStats()
+        {
+            var stats = _latestStats;
+            if (stats == null) return;
+
+            // Начальная позиция отрисовки в верхнем левом углу
+            var drawPos = new System.Numerics.Vector2(20, 80);
+
+            // 1. Отрисовка Grand Total (Белый цвет, небольшой текст)
+            var grandTotalText = $"Grand Total: {stats.GrandTotal}";
+            var grandTotalSize = Graphics.DrawText(grandTotalText, drawPos, SharpDX.Color.White);
+            drawPos.Y += grandTotalSize.Y + 8; // Смещаем позицию вниз + небольшой отступ
+
+            // 2. Отрисовка T0 уников
+            if (stats.T0GrandTotal != null && stats.T0GrandTotal.Count > 0)
+            {
+                var headerSize = Graphics.DrawText("T0 Uniques:", drawPos, SharpDX.Color.White);
+                drawPos.Y += headerSize.Y + 2;
+
+                foreach (var kvp in stats.T0GrandTotal)
+                {
+                    string itemName = kvp.Key;
+                    int count = kvp.Value;
+
+                    // Название уника — красным цветом
+                    var nameText = $"  {itemName}";
+                    var nameSize = Graphics.DrawText(nameText, drawPos, SharpDX.Color.Red);
+
+                    // Двоеточие и число — белым цветом (выводится сразу справа от названия)
+                    Graphics.DrawText($": {count}", drawPos + new System.Numerics.Vector2(nameSize.X, 0), SharpDX.Color.White);
+
+                    drawPos.Y += nameSize.Y;
+                }
+                drawPos.Y += 6; // Отступ между блоками
+            }
+
+            // 3. Отрисовка T1 уников (Все элементы белым цветом)
+            if (stats.T1GrandTotal != null && stats.T1GrandTotal.Count > 0)
+            {
+                var headerSize = Graphics.DrawText("T1 Uniques:", drawPos, SharpDX.Color.White);
+                drawPos.Y += headerSize.Y + 2;
+
+                foreach (var kvp in stats.T1GrandTotal)
+                {
+                    string itemName = kvp.Key;
+                    int count = kvp.Value;
+
+                    var itemText = $"  {itemName}: {count}";
+                    var itemSize = Graphics.DrawText(itemText, drawPos, SharpDX.Color.White);
+
+                    drawPos.Y += itemSize.Y;
+                }
             }
         }
 
