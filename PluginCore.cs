@@ -34,7 +34,13 @@ namespace UniqueLogger
         // Поле для токена авторизации статистики (X-API-Key)
         public TextNode StatsApiKey { get; set; } = new TextNode("");
 
-        // --- НАСТРОЙКИ ЦВЕТОВ ---
+        // --- НАСТРОЙКИ ВИДИМОСТИ ЭЛЕМЕНТОВ ---
+        public ToggleNode ShowGrandTotal { get; set; } = new ToggleNode(true);
+        public ToggleNode ShowT0Uniques { get; set; } = new ToggleNode(true);
+        public ToggleNode ShowT1Uniques { get; set; } = new ToggleNode(true);
+
+        // --- НАСТРОЙКИ ЦВЕТОВ И ШРИФТА ---
+        public RangeNode<float> TextScale { get; set; } = new RangeNode<float>(1.0f, 0.3f, 3.0f);
         public ColorNode T0Color { get; set; } = new ColorNode(SharpDX.Color.Red);
         public ColorNode MainTextColor { get; set; } = new ColorNode(SharpDX.Color.White);
 
@@ -367,54 +373,61 @@ namespace UniqueLogger
             var stats = _latestStats;
             if (stats == null) return;
 
-            // Получаем цвета из настроек
-            var t0Color = Settings.T0Color.Value;
-            var textColor = Settings.MainTextColor.Value;
-
-            // 1. Отрисовка Grand Total
-            var grandTotalPos = Settings.GrandTotalPosition.Value;
-            var grandTotalText = $"Grand Total: {stats.GrandTotal}";
-            Graphics.DrawText(grandTotalText, grandTotalPos, textColor);
-
-            // 2. Отрисовка T0 уников
-            if (stats.T0GrandTotal != null && stats.T0GrandTotal.Count > 0)
+            // Устанавливаем масштаб текста из настроек (TextScale)
+            using (Graphics.SetTextScale(Settings.TextScale.Value))
             {
-                var t0Pos = Settings.T0Position.Value;
-                var headerSize = Graphics.DrawText("T0 Uniques:", t0Pos, textColor);
-                t0Pos.Y += headerSize.Y + 2;
+                // Получаем цвета из настроек
+                var t0Color = Settings.T0Color.Value;
+                var textColor = Settings.MainTextColor.Value;
 
-                foreach (var kvp in stats.T0GrandTotal)
+                // 1. Отрисовка Grand Total
+                if (Settings.ShowGrandTotal)
                 {
-                    string itemName = kvp.Key;
-                    int count = kvp.Value;
-
-                    // Название уника — настраиваемый цвет T0
-                    var nameText = $"  {itemName}";
-                    var nameSize = Graphics.DrawText(nameText, t0Pos, t0Color);
-
-                    // Двоеточие и число — настраиваемый основной цвет
-                    Graphics.DrawText($": {count}", t0Pos + new System.Numerics.Vector2(nameSize.X, 0), textColor);
-
-                    t0Pos.Y += nameSize.Y;
+                    var grandTotalPos = Settings.GrandTotalPosition.Value;
+                    var grandTotalText = $"Grand Total: {stats.GrandTotal}";
+                    Graphics.DrawText(grandTotalText, grandTotalPos, textColor);
                 }
-            }
 
-            // 3. Отрисовка T1 уников
-            if (stats.T1GrandTotal != null && stats.T1GrandTotal.Count > 0)
-            {
-                var t1Pos = Settings.T1Position.Value;
-                var headerSize = Graphics.DrawText("T1 Uniques:", t1Pos, textColor);
-                t1Pos.Y += headerSize.Y + 2;
-
-                foreach (var kvp in stats.T1GrandTotal)
+                // 2. Отрисовка T0 уников
+                if (Settings.ShowT0Uniques && stats.T0GrandTotal != null && stats.T0GrandTotal.Count > 0)
                 {
-                    string itemName = kvp.Key;
-                    int count = kvp.Value;
+                    var t0Pos = Settings.T0Position.Value;
+                    var headerSize = Graphics.DrawText("T0 Uniques:", t0Pos, textColor);
+                    t0Pos.Y += headerSize.Y + 2;
 
-                    var itemText = $"  {itemName}: {count}";
-                    var itemSize = Graphics.DrawText(itemText, t1Pos, textColor);
+                    foreach (var kvp in stats.T0GrandTotal)
+                    {
+                        string itemName = kvp.Key;
+                        int count = kvp.Value;
 
-                    t1Pos.Y += itemSize.Y;
+                        // Название уника — настраиваемый цвет T0
+                        var nameText = $"  {itemName}";
+                        var nameSize = Graphics.DrawText(nameText, t0Pos, t0Color);
+
+                        // Двоеточие и число — настраиваемый основной цвет
+                        Graphics.DrawText($": {count}", t0Pos + new System.Numerics.Vector2(nameSize.X, 0), textColor);
+
+                        t0Pos.Y += nameSize.Y;
+                    }
+                }
+
+                // 3. Отрисовка T1 уников
+                if (Settings.ShowT1Uniques && stats.T1GrandTotal != null && stats.T1GrandTotal.Count > 0)
+                {
+                    var t1Pos = Settings.T1Position.Value;
+                    var headerSize = Graphics.DrawText("T1 Uniques:", t1Pos, textColor);
+                    t1Pos.Y += headerSize.Y + 2;
+
+                    foreach (var kvp in stats.T1GrandTotal)
+                    {
+                        string itemName = kvp.Key;
+                        int count = kvp.Value;
+
+                        var itemText = $"  {itemName}: {count}";
+                        var itemSize = Graphics.DrawText(itemText, t1Pos, textColor);
+
+                        t1Pos.Y += itemSize.Y;
+                    }
                 }
             }
         }
