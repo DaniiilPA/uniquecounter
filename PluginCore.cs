@@ -33,6 +33,29 @@ namespace UniqueLogger
         
         // Поле для токена авторизации статистики (X-API-Key)
         public TextNode StatsApiKey { get; set; } = new TextNode("");
+
+        // --- НАСТРОЙКИ ЦВЕТОВ ---
+        public ColorNode T0Color { get; set; } = new ColorNode(SharpDX.Color.Red);
+        public ColorNode MainTextColor { get; set; } = new ColorNode(SharpDX.Color.White);
+
+        // --- НАСТРОЙКИ ПОЗИЦИЙ НА ЭКРАНЕ ---
+        public RangeNode<System.Numerics.Vector2> GrandTotalPosition { get; set; } = new RangeNode<System.Numerics.Vector2>(
+            new System.Numerics.Vector2(20, 80),
+            new System.Numerics.Vector2(0, 0),
+            new System.Numerics.Vector2(3840, 2160)
+        );
+
+        public RangeNode<System.Numerics.Vector2> T0Position { get; set; } = new RangeNode<System.Numerics.Vector2>(
+            new System.Numerics.Vector2(20, 120),
+            new System.Numerics.Vector2(0, 0),
+            new System.Numerics.Vector2(3840, 2160)
+        );
+
+        public RangeNode<System.Numerics.Vector2> T1Position { get; set; } = new RangeNode<System.Numerics.Vector2>(
+            new System.Numerics.Vector2(20, 260),
+            new System.Numerics.Vector2(0, 0),
+            new System.Numerics.Vector2(3840, 2160)
+        );
     }
 
     public class StatsResponse
@@ -344,42 +367,44 @@ namespace UniqueLogger
             var stats = _latestStats;
             if (stats == null) return;
 
-            // Начальная позиция отрисовки в верхнем левом углу
-            var drawPos = new System.Numerics.Vector2(20, 80);
+            // Получаем цвета из настроек
+            var t0Color = Settings.T0Color.Value;
+            var textColor = Settings.MainTextColor.Value;
 
-            // 1. Отрисовка Grand Total (Белый цвет, небольшой текст)
+            // 1. Отрисовка Grand Total
+            var grandTotalPos = Settings.GrandTotalPosition.Value;
             var grandTotalText = $"Grand Total: {stats.GrandTotal}";
-            var grandTotalSize = Graphics.DrawText(grandTotalText, drawPos, SharpDX.Color.White);
-            drawPos.Y += grandTotalSize.Y + 8; // Смещаем позицию вниз + небольшой отступ
+            Graphics.DrawText(grandTotalText, grandTotalPos, textColor);
 
             // 2. Отрисовка T0 уников
             if (stats.T0GrandTotal != null && stats.T0GrandTotal.Count > 0)
             {
-                var headerSize = Graphics.DrawText("T0 Uniques:", drawPos, SharpDX.Color.White);
-                drawPos.Y += headerSize.Y + 2;
+                var t0Pos = Settings.T0Position.Value;
+                var headerSize = Graphics.DrawText("T0 Uniques:", t0Pos, textColor);
+                t0Pos.Y += headerSize.Y + 2;
 
                 foreach (var kvp in stats.T0GrandTotal)
                 {
                     string itemName = kvp.Key;
                     int count = kvp.Value;
 
-                    // Название уника — красным цветом
+                    // Название уника — настраиваемый цвет T0
                     var nameText = $"  {itemName}";
-                    var nameSize = Graphics.DrawText(nameText, drawPos, SharpDX.Color.Red);
+                    var nameSize = Graphics.DrawText(nameText, t0Pos, t0Color);
 
-                    // Двоеточие и число — белым цветом (выводится сразу справа от названия)
-                    Graphics.DrawText($": {count}", drawPos + new System.Numerics.Vector2(nameSize.X, 0), SharpDX.Color.White);
+                    // Двоеточие и число — настраиваемый основной цвет
+                    Graphics.DrawText($": {count}", t0Pos + new System.Numerics.Vector2(nameSize.X, 0), textColor);
 
-                    drawPos.Y += nameSize.Y;
+                    t0Pos.Y += nameSize.Y;
                 }
-                drawPos.Y += 6; // Отступ между блоками
             }
 
-            // 3. Отрисовка T1 уников (Все элементы белым цветом)
+            // 3. Отрисовка T1 уников
             if (stats.T1GrandTotal != null && stats.T1GrandTotal.Count > 0)
             {
-                var headerSize = Graphics.DrawText("T1 Uniques:", drawPos, SharpDX.Color.White);
-                drawPos.Y += headerSize.Y + 2;
+                var t1Pos = Settings.T1Position.Value;
+                var headerSize = Graphics.DrawText("T1 Uniques:", t1Pos, textColor);
+                t1Pos.Y += headerSize.Y + 2;
 
                 foreach (var kvp in stats.T1GrandTotal)
                 {
@@ -387,9 +412,9 @@ namespace UniqueLogger
                     int count = kvp.Value;
 
                     var itemText = $"  {itemName}: {count}";
-                    var itemSize = Graphics.DrawText(itemText, drawPos, SharpDX.Color.White);
+                    var itemSize = Graphics.DrawText(itemText, t1Pos, textColor);
 
-                    drawPos.Y += itemSize.Y;
+                    t1Pos.Y += itemSize.Y;
                 }
             }
         }
