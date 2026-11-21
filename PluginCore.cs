@@ -34,12 +34,12 @@ namespace UniqueLogger
         public ToggleNode UseTierColorsForBackground { get; set; } = new ToggleNode(false);
         public ColorNode HighlightBorderColor { get; set; } = new ColorNode(SharpDX.Color.Gold);
         public RangeNode<int> HighlightBorderThickness { get; set; } = new RangeNode<int>(3, 1, 10);
-        public ColorNode HighlightBackgroundColor { get; set; } = new ColorNode(new SharpDX.Color(255, 215, 0, 180));
-        public RangeNode<int> HighlightBackgroundAlpha { get; set; } = new RangeNode<int>(180, 0, 255);
+        public ColorNode HighlightBackgroundColor { get; set; } = new ColorNode(new SharpDX.Color(255, 215, 0, 140));
+        public RangeNode<int> HighlightBackgroundAlpha { get; set; } = new RangeNode<int>(140, 0, 255);
         public ToggleNode DrawNameOnLabel { get; set; } = new ToggleNode(true);
         public ColorNode LabelNameTextColor { get; set; } = new ColorNode(SharpDX.Color.White);
         public RangeNode<float> LabelTextScale { get; set; } = new RangeNode<float>(1.0f, 0.4f, 2.5f);
-        public RangeNode<int> LabelTextThickness { get; set; } = new RangeNode<int>(2, 0, 4);
+        public RangeNode<int> LabelTextThickness { get; set; } = new RangeNode<int>(1, 0, 3);
         public ToggleNode LabelTextOutline { get; set; } = new ToggleNode(true);
 
         // --- НАСТРОЙКИ ОТОБРАЖЕНИЯ HUD (СЧЕТЧИКИ) ---
@@ -52,7 +52,7 @@ namespace UniqueLogger
 
         // --- ЦВЕТА И ШРИФТЫ HUD ---
         public RangeNode<float> TextScale { get; set; } = new RangeNode<float>(1.0f, 0.3f, 3.0f);
-        public RangeNode<int> TextThickness { get; set; } = new RangeNode<int>(2, 0, 4);
+        public RangeNode<int> TextThickness { get; set; } = new RangeNode<int>(1, 0, 3);
         public ToggleNode TextOutline { get; set; } = new ToggleNode(true);
         public ColorNode MapTotalColor { get; set; } = new ColorNode(SharpDX.Color.Yellow);
         public ColorNode MainTextColor { get; set; } = new ColorNode(SharpDX.Color.White);
@@ -723,21 +723,15 @@ namespace UniqueLogger
                             baseBgColor = Settings.T1Color.Value;
                     }
 
-                    int bgAlpha = Settings.HighlightBackgroundAlpha.Value;
-                    // Если в палитре цвета явно выбрана своя прозрачность в ColorEdit4 (не дефолтные 50 или 180)
-                    if (baseBgColor.A > 0 && baseBgColor.A < 255 && baseBgColor.A != 50 && baseBgColor.A != 180 && bgAlpha == 180)
-                    {
-                        bgAlpha = baseBgColor.A;
-                    }
-                    var finalBgColor = new SharpDX.Color(baseBgColor.R, baseBgColor.G, baseBgColor.B, (byte)bgAlpha);
+                    int bgAlpha = Math.Clamp(Settings.HighlightBackgroundAlpha.Value, 0, 255);
 
-                    // 1. Отрисовка фона плашки (если альфа > 0)
+                    // 1. Отрисовка фона плашки (ровно один раз с точной прозрачностью)
                     if (bgAlpha > 0)
                     {
+                        var finalBgColor = new SharpDX.Color(baseBgColor.R, baseBgColor.G, baseBgColor.B, (byte)bgAlpha);
                         var p1 = new System.Numerics.Vector2(rect.Left, rect.Top);
                         var p2 = new System.Numerics.Vector2(rect.Right, rect.Bottom);
                         Graphics.DrawBox(p1, p2, finalBgColor, 2f);
-                        Graphics.DrawBox(rect, finalBgColor);
                     }
 
                     // 2. Отрисовка рамки вокруг плашки
@@ -1232,41 +1226,51 @@ namespace UniqueLogger
 
             var size = Graphics.MeasureText(text);
 
-            // 1. Отрисовка темного контура (Outline) для четкости на любом фоне игры
+            // 1. Аккуратная тонкая 4-сторонняя контрастная обводка (Outline)
+            // Рисуется крестом на 1px, буквы остаются открытыми и не заливаются чернотой
             if (outline)
             {
-                var shadowColor = new SharpDX.Color(0, 0, 0, 235);
-                int outlineDist = Math.Max(1, thickness);
-                for (int ox = -outlineDist; ox <= outlineDist; ox++)
+                var shadowColor = new SharpDX.Color(0, 0, 0, 230);
+                Graphics.DrawText(text, new System.Numerics.Vector2(position.X - 1, position.Y), shadowColor);
+                Graphics.DrawText(text, new System.Numerics.Vector2(position.X + 1, position.Y), shadowColor);
+                Graphics.DrawText(text, new System.Numerics.Vector2(position.X, position.Y - 1), shadowColor);
+                Graphics.DrawText(text, new System.Numerics.Vector2(position.X, position.Y + 1), shadowColor);
+
+                if (thickness >= 2)
                 {
-                    for (int oy = -outlineDist; oy <= outlineDist; oy++)
-                    {
-                        if (ox == 0 && oy == 0) continue;
-                        Graphics.DrawText(text, new System.Numerics.Vector2(position.X + ox, position.Y + oy), shadowColor);
-                    }
+                    Graphics.DrawText(text, new System.Numerics.Vector2(position.X + 1, position.Y + 1), shadowColor);
+                    Graphics.DrawText(text, new System.Numerics.Vector2(position.X - 1, position.Y + 1), shadowColor);
                 }
             }
 
-            // 2. Отрисовка утолщения шрифта (Bold)
-            if (thickness > 0)
+            // 2. Аккуратное утолщение шрифта (Faux Bold)
+            // 0 = обычный тонкий шрифт игры
+            // 1 = классический читаемый жирный шрифт (+1px горизонтальный штрих, буквы не слипаются)
+            // 2 = плотный жирный шрифт (+1px горизонталь + вертикаль + диагональ)
+            // 3 = усиленный жирный шрифт (+1px во все стороны)
+            if (thickness == 1)
             {
-                for (int x = -thickness; x <= thickness; x++)
-                {
-                    for (int y = -thickness; y <= thickness; y++)
-                    {
-                        if (x == 0 && y == 0) continue;
-                        if (x * x + y * y <= thickness * thickness + 1)
-                        {
-                            Graphics.DrawText(text, new System.Numerics.Vector2(position.X + x, position.Y + y), color);
-                        }
-                    }
-                }
+                Graphics.DrawText(text, new System.Numerics.Vector2(position.X + 1, position.Y), color);
+            }
+            else if (thickness == 2)
+            {
+                Graphics.DrawText(text, new System.Numerics.Vector2(position.X + 1, position.Y), color);
+                Graphics.DrawText(text, new System.Numerics.Vector2(position.X, position.Y + 1), color);
+                Graphics.DrawText(text, new System.Numerics.Vector2(position.X + 1, position.Y + 1), color);
+            }
+            else if (thickness >= 3)
+            {
+                Graphics.DrawText(text, new System.Numerics.Vector2(position.X + 1, position.Y), color);
+                Graphics.DrawText(text, new System.Numerics.Vector2(position.X - 1, position.Y), color);
+                Graphics.DrawText(text, new System.Numerics.Vector2(position.X, position.Y + 1), color);
+                Graphics.DrawText(text, new System.Numerics.Vector2(position.X, position.Y - 1), color);
+                Graphics.DrawText(text, new System.Numerics.Vector2(position.X + 1, position.Y + 1), color);
             }
 
-            // 3. Основной текст по центру
+            // 3. Основной текст
             Graphics.DrawText(text, position, color);
 
-            return new System.Numerics.Vector2(size.X + (thickness > 0 ? thickness : 0), size.Y);
+            return new System.Numerics.Vector2(size.X + (thickness > 0 ? 1 : 0), size.Y);
         }
 
         private static string CleanString(string str)
