@@ -29,14 +29,12 @@ namespace UniqueLogger
 
         // --- ПОДСВЕТКА И РАМКИ ПЛАШЕК НА ПОЛУ (ИЗ UNIQUE-FILTER) ---
         public ToggleNode HighlightLabelsOnGround { get; set; } = new ToggleNode(true);
-        public ToggleNode HighlightOnlyTiers { get; set; } = new ToggleNode(true);
         public ColorNode BorderColor { get; set; } = new ColorNode(SharpDX.Color.Gold);
         public RangeNode<int> BorderThickness { get; set; } = new RangeNode<int>(3, 1, 10);
         public ColorNode BackgroundColor { get; set; } = new ColorNode(new SharpDX.Color(255, 215, 0, 70));
-        public ToggleNode DrawNameText { get; set; } = new ToggleNode(true);
         public ColorNode TextColor { get; set; } = new ColorNode(SharpDX.Color.White);
         public RangeNode<float> LabelTextScale { get; set; } = new RangeNode<float>(1.0f, 0.4f, 2.5f);
-        public RangeNode<int> LabelTextThickness { get; set; } = new RangeNode<int>(1, 0, 2);
+        public RangeNode<float> LabelTextThickness { get; set; } = new RangeNode<float>(0.5f, 0.0f, 2.0f);
 
         // --- НАСТРОЙКИ ОТОБРАЖЕНИЯ HUD (СЧЕТЧИКИ) ---
         public ToggleNode ShowMapTotal { get; set; } = new ToggleNode(true);
@@ -48,7 +46,7 @@ namespace UniqueLogger
 
         // --- ЦВЕТА И ШРИФТЫ HUD ---
         public RangeNode<float> TextScale { get; set; } = new RangeNode<float>(1.0f, 0.3f, 3.0f);
-        public RangeNode<int> TextThickness { get; set; } = new RangeNode<int>(1, 0, 3);
+        public RangeNode<float> TextThickness { get; set; } = new RangeNode<float>(0.5f, 0.0f, 2.0f);
         public ToggleNode TextOutline { get; set; } = new ToggleNode(true);
         public ColorNode MapTotalColor { get; set; } = new ColorNode(SharpDX.Color.Yellow);
         public ColorNode MainTextColor { get; set; } = new ColorNode(SharpDX.Color.White);
@@ -696,8 +694,8 @@ namespace UniqueLogger
 
                     if (string.IsNullOrEmpty(cachedInfo.UniqueName)) continue;
 
-                    // Если включен фильтр только по тирам - пропускаем предметы не из T0/T1
-                    if (Settings.HighlightOnlyTiers && cachedInfo.Tier < 0) continue;
+                    // Подсвечиваем только уники из T0/T1
+                    if (cachedInfo.Tier < 0) continue;
 
                     // 1. Отрисовка фона плашки (как в оригинальном unique-filter)
                     if (Settings.BackgroundColor.Value.A > 0)
@@ -708,24 +706,21 @@ namespace UniqueLogger
                     // 2. Отрисовка рамки вокруг плашки (как в оригинальном unique-filter)
                     Graphics.DrawFrame(rect, Settings.BorderColor.Value, Settings.BorderThickness.Value);
 
-                    // 3. Отрисовка названия уника поверх нативной плашки (как в оригинальном unique-filter)
-                    if (Settings.DrawNameText.Value)
+                    // 3. Отрисовка названия уника поверх плашки (всегда пишем)
+                    using (Graphics.SetTextScale(Settings.LabelTextScale.Value))
                     {
-                        using (Graphics.SetTextScale(Settings.LabelTextScale.Value))
-                        {
-                            var textSize = Graphics.MeasureText(cachedInfo.UniqueName);
-                            var textPos = new System.Numerics.Vector2(
-                                rect.Center.X - textSize.X / 2f,
-                                rect.Center.Y - textSize.Y / 2f
-                            );
-                            DrawThickText(
-                                cachedInfo.UniqueName,
-                                textPos,
-                                Settings.TextColor.Value,
-                                Settings.LabelTextThickness.Value,
-                                false
-                            );
-                        }
+                        var textSize = Graphics.MeasureText(cachedInfo.UniqueName);
+                        var textPos = new System.Numerics.Vector2(
+                            rect.Center.X - textSize.X / 2f,
+                            rect.Center.Y - textSize.Y / 2f
+                        );
+                        DrawThickText(
+                            cachedInfo.UniqueName,
+                            textPos,
+                            Settings.TextColor.Value,
+                            Settings.LabelTextThickness.Value,
+                            false
+                        );
                     }
                 }
                 catch
@@ -867,7 +862,7 @@ namespace UniqueLogger
                 var mapTotalColor = Settings.MapTotalColor.Value;
                 var t0Color = Settings.T0Color.Value;
                 var t1Color = Settings.T1Color.Value;
-                int thickness = Settings.TextThickness.Value;
+                float thickness = Settings.TextThickness.Value;
                 bool outline = Settings.TextOutline.Value;
 
                 // 1. Отрисовка уников за текущую карту
@@ -1190,7 +1185,7 @@ namespace UniqueLogger
             string text,
             System.Numerics.Vector2 position,
             SharpDX.Color color,
-            int thickness,
+            float thickness,
             bool outline)
         {
             if (string.IsNullOrEmpty(text)) return System.Numerics.Vector2.Zero;
@@ -1198,50 +1193,43 @@ namespace UniqueLogger
             var size = Graphics.MeasureText(text);
 
             // 1. Аккуратная тонкая 4-сторонняя контрастная обводка (Outline)
-            // Рисуется крестом на 1px, буквы остаются открытыми и не заливаются чернотой
             if (outline)
             {
                 var shadowColor = new SharpDX.Color(0, 0, 0, 230);
-                Graphics.DrawText(text, new System.Numerics.Vector2(position.X - 1, position.Y), shadowColor);
-                Graphics.DrawText(text, new System.Numerics.Vector2(position.X + 1, position.Y), shadowColor);
-                Graphics.DrawText(text, new System.Numerics.Vector2(position.X, position.Y - 1), shadowColor);
-                Graphics.DrawText(text, new System.Numerics.Vector2(position.X, position.Y + 1), shadowColor);
+                Graphics.DrawText(text, new System.Numerics.Vector2(position.X - 1f, position.Y), shadowColor);
+                Graphics.DrawText(text, new System.Numerics.Vector2(position.X + 1f, position.Y), shadowColor);
+                Graphics.DrawText(text, new System.Numerics.Vector2(position.X, position.Y - 1f), shadowColor);
+                Graphics.DrawText(text, new System.Numerics.Vector2(position.X, position.Y + 1f), shadowColor);
 
-                if (thickness >= 2)
+                if (thickness > 1.0f)
                 {
-                    Graphics.DrawText(text, new System.Numerics.Vector2(position.X + 1, position.Y + 1), shadowColor);
-                    Graphics.DrawText(text, new System.Numerics.Vector2(position.X - 1, position.Y + 1), shadowColor);
+                    float diag = Math.Min(1.0f, thickness - 0.5f);
+                    Graphics.DrawText(text, new System.Numerics.Vector2(position.X + diag, position.Y + diag), shadowColor);
+                    Graphics.DrawText(text, new System.Numerics.Vector2(position.X - diag, position.Y + diag), shadowColor);
                 }
             }
 
-            // 2. Аккуратное утолщение шрифта (Faux Bold)
-            // 0 = обычный тонкий шрифт игры
-            // 1 = классический читаемый жирный шрифт (+1px горизонтальный штрих, буквы не слипаются)
-            // 2 = плотный жирный шрифт (+1px горизонталь + вертикаль + диагональ)
-            // 3 = усиленный жирный шрифт (+1px во все стороны)
-            if (thickness == 1)
+            // 2. Плавное субпиксельное утолщение (Faux-Bold):
+            // Поддерживает любые промежуточные значения (0.2, 0.4, 0.5, 0.7, 1.0, 1.5...)
+            if (thickness > 0.05f)
             {
-                Graphics.DrawText(text, new System.Numerics.Vector2(position.X + 1, position.Y), color);
-            }
-            else if (thickness == 2)
-            {
-                Graphics.DrawText(text, new System.Numerics.Vector2(position.X + 1, position.Y), color);
-                Graphics.DrawText(text, new System.Numerics.Vector2(position.X, position.Y + 1), color);
-                Graphics.DrawText(text, new System.Numerics.Vector2(position.X + 1, position.Y + 1), color);
-            }
-            else if (thickness >= 3)
-            {
-                Graphics.DrawText(text, new System.Numerics.Vector2(position.X + 1, position.Y), color);
-                Graphics.DrawText(text, new System.Numerics.Vector2(position.X - 1, position.Y), color);
-                Graphics.DrawText(text, new System.Numerics.Vector2(position.X, position.Y + 1), color);
-                Graphics.DrawText(text, new System.Numerics.Vector2(position.X, position.Y - 1), color);
-                Graphics.DrawText(text, new System.Numerics.Vector2(position.X + 1, position.Y + 1), color);
+                // Горизонтальный штрих плавно нарастает от 0 до 1px
+                float hOffset = Math.Min(thickness, 1.0f);
+                Graphics.DrawText(text, new System.Numerics.Vector2(position.X + hOffset, position.Y), color);
+
+                // Если толщина > 0.7, плавно подключаем диагональ и вертикаль
+                if (thickness > 0.7f)
+                {
+                    float extra = Math.Min(1.0f, (thickness - 0.7f) * 1.5f);
+                    Graphics.DrawText(text, new System.Numerics.Vector2(position.X, position.Y + extra * 0.7f), color);
+                    Graphics.DrawText(text, new System.Numerics.Vector2(position.X + extra * 0.7f, position.Y + extra * 0.7f), color);
+                }
             }
 
             // 3. Основной текст
             Graphics.DrawText(text, position, color);
 
-            return new System.Numerics.Vector2(size.X + (thickness > 0 ? 1 : 0), size.Y);
+            return new System.Numerics.Vector2(size.X + (thickness > 0.5f ? 1 : 0), size.Y);
         }
 
         private static string CleanString(string str)
