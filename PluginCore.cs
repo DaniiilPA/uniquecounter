@@ -37,6 +37,8 @@ namespace UniqueLogger
         public ToggleNode DrawNameOnLabel { get; set; } = new ToggleNode(true);
         public ColorNode LabelNameTextColor { get; set; } = new ColorNode(SharpDX.Color.White);
         public RangeNode<float> LabelTextScale { get; set; } = new RangeNode<float>(1.0f, 0.4f, 2.5f);
+        public RangeNode<int> LabelTextThickness { get; set; } = new RangeNode<int>(1, 0, 4);
+        public ToggleNode LabelTextOutline { get; set; } = new ToggleNode(true);
 
         // --- НАСТРОЙКИ ОТОБРАЖЕНИЯ HUD (СЧЕТЧИКИ) ---
         public ToggleNode ShowMapTotal { get; set; } = new ToggleNode(true);
@@ -47,6 +49,8 @@ namespace UniqueLogger
 
         // --- ЦВЕТА И ШРИФТЫ HUD ---
         public RangeNode<float> TextScale { get; set; } = new RangeNode<float>(1.0f, 0.3f, 3.0f);
+        public RangeNode<int> TextThickness { get; set; } = new RangeNode<int>(1, 0, 4);
+        public ToggleNode TextOutline { get; set; } = new ToggleNode(true);
         public ColorNode MapTotalColor { get; set; } = new ColorNode(SharpDX.Color.Yellow);
         public ColorNode MainTextColor { get; set; } = new ColorNode(SharpDX.Color.White);
         public ColorNode T0Color { get; set; } = new ColorNode(SharpDX.Color.Red);
@@ -713,7 +717,13 @@ namespace UniqueLogger
                                 rect.X + rect.Width / 2f - textSize.X / 2f,
                                 rect.Y + rect.Height / 2f - textSize.Y / 2f
                             );
-                            Graphics.DrawText(cachedInfo.UniqueName, textPos, Settings.LabelNameTextColor.Value);
+                            DrawThickText(
+                                cachedInfo.UniqueName,
+                                textPos,
+                                Settings.LabelNameTextColor.Value,
+                                Settings.LabelTextThickness.Value,
+                                Settings.LabelTextOutline.Value
+                            );
                         }
                     }
                 }
@@ -851,6 +861,8 @@ namespace UniqueLogger
                 var mapTotalColor = Settings.MapTotalColor.Value;
                 var t0Color = Settings.T0Color.Value;
                 var t1Color = Settings.T1Color.Value;
+                int thickness = Settings.TextThickness.Value;
+                bool outline = Settings.TextOutline.Value;
 
                 // 1. Отрисовка уников за текущую карту
                 if (Settings.ShowMapTotal)
@@ -865,7 +877,7 @@ namespace UniqueLogger
                     {
                         mapText = $"Map Uniques: {currentMapTotal}";
                     }
-                    Graphics.DrawText(mapText, mapPos, mapTotalColor);
+                    DrawThickText(mapText, mapPos, mapTotalColor, thickness, outline);
                 }
 
                 // 2. Отрисовка общего числа (Grand Total)
@@ -873,14 +885,14 @@ namespace UniqueLogger
                 {
                     var grandPos = Settings.GrandTotalPosition.Value;
                     var grandText = $"Grand Total: {statsSnapshot.GrandTotal}";
-                    Graphics.DrawText(grandText, grandPos, mainTextColor);
+                    DrawThickText(grandText, grandPos, mainTextColor, thickness, outline);
                 }
 
                 // 3. Отрисовка T0 уников
                 if (Settings.ShowT0Uniques && statsSnapshot.T0GrandTotal != null && statsSnapshot.T0GrandTotal.Count > 0)
                 {
                     var t0Pos = Settings.T0Position.Value;
-                    var headerSize = Graphics.DrawText("T0 Uniques:", t0Pos, mainTextColor);
+                    var headerSize = DrawThickText("T0 Uniques:", t0Pos, mainTextColor, thickness, outline);
                     t0Pos.Y += headerSize.Y + 2;
 
                     foreach (var kvp in statsSnapshot.T0GrandTotal.OrderByDescending(x => x.Value).ThenBy(x => x.Key))
@@ -889,7 +901,7 @@ namespace UniqueLogger
                         int count = kvp.Value;
 
                         var nameText = $"  {itemName}";
-                        var nameSize = Graphics.DrawText(nameText, t0Pos, t0Color);
+                        var nameSize = DrawThickText(nameText, t0Pos, t0Color, thickness, outline);
 
                         string countText = $": {count}";
                         if (Settings.ShowMapContributionInList && currentMapT0.TryGetValue(itemName, out var mapCount) && mapCount > 0)
@@ -897,7 +909,7 @@ namespace UniqueLogger
                             countText += $" (+{mapCount} on map)";
                         }
 
-                        Graphics.DrawText(countText, t0Pos + new System.Numerics.Vector2(nameSize.X, 0), mainTextColor);
+                        DrawThickText(countText, t0Pos + new System.Numerics.Vector2(nameSize.X, 0), mainTextColor, thickness, outline);
                         t0Pos.Y += nameSize.Y;
                     }
                 }
@@ -906,7 +918,7 @@ namespace UniqueLogger
                 if (Settings.ShowT1Uniques && statsSnapshot.T1GrandTotal != null && statsSnapshot.T1GrandTotal.Count > 0)
                 {
                     var t1Pos = Settings.T1Position.Value;
-                    var headerSize = Graphics.DrawText("T1 Uniques:", t1Pos, mainTextColor);
+                    var headerSize = DrawThickText("T1 Uniques:", t1Pos, mainTextColor, thickness, outline);
                     t1Pos.Y += headerSize.Y + 2;
 
                     foreach (var kvp in statsSnapshot.T1GrandTotal.OrderByDescending(x => x.Value).ThenBy(x => x.Key))
@@ -915,7 +927,7 @@ namespace UniqueLogger
                         int count = kvp.Value;
 
                         var nameText = $"  {itemName}";
-                        var nameSize = Graphics.DrawText(nameText, t1Pos, t1Color);
+                        var nameSize = DrawThickText(nameText, t1Pos, t1Color, thickness, outline);
 
                         string countText = $": {count}";
                         if (Settings.ShowMapContributionInList && currentMapT1.TryGetValue(itemName, out var mapCount) && mapCount > 0)
@@ -923,7 +935,7 @@ namespace UniqueLogger
                             countText += $" (+{mapCount} on map)";
                         }
 
-                        Graphics.DrawText(countText, t1Pos + new System.Numerics.Vector2(nameSize.X, 0), mainTextColor);
+                        DrawThickText(countText, t1Pos + new System.Numerics.Vector2(nameSize.X, 0), mainTextColor, thickness, outline);
                         t1Pos.Y += nameSize.Y;
                     }
                 }
@@ -1114,6 +1126,54 @@ namespace UniqueLogger
                     LogError($"[UniqueCounter] Ошибка парсинга базы предметов: {ex.Message}", 5);
                 }
             }
+        }
+
+        private System.Numerics.Vector2 DrawThickText(
+            string text,
+            System.Numerics.Vector2 position,
+            SharpDX.Color color,
+            int thickness,
+            bool outline)
+        {
+            if (string.IsNullOrEmpty(text)) return System.Numerics.Vector2.Zero;
+
+            var size = Graphics.MeasureText(text);
+
+            // 1. Отрисовка темного контура (Outline) для четкости на любом фоне игры
+            if (outline)
+            {
+                var shadowColor = new SharpDX.Color(0, 0, 0, 235);
+                int outlineDist = Math.Max(1, thickness);
+                for (int ox = -outlineDist; ox <= outlineDist; ox++)
+                {
+                    for (int oy = -outlineDist; oy <= outlineDist; oy++)
+                    {
+                        if (ox == 0 && oy == 0) continue;
+                        Graphics.DrawText(text, new System.Numerics.Vector2(position.X + ox, position.Y + oy), shadowColor);
+                    }
+                }
+            }
+
+            // 2. Отрисовка утолщения шрифта (Bold)
+            if (thickness > 0)
+            {
+                for (int x = -thickness; x <= thickness; x++)
+                {
+                    for (int y = -thickness; y <= thickness; y++)
+                    {
+                        if (x == 0 && y == 0) continue;
+                        if (x * x + y * y <= thickness * thickness + 1)
+                        {
+                            Graphics.DrawText(text, new System.Numerics.Vector2(position.X + x, position.Y + y), color);
+                        }
+                    }
+                }
+            }
+
+            // 3. Основной текст по центру
+            Graphics.DrawText(text, position, color);
+
+            return new System.Numerics.Vector2(size.X + (thickness > 0 ? thickness : 0), size.Y);
         }
 
         private static string CleanString(string str)

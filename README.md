@@ -61,13 +61,18 @@
 * `HighlightBackgroundColor` — цвет и прозрачность заливки фона плашки.
 * `DrawNameOnLabel` — писать имя уника прямо поверх плашки на полу.
 * `LabelNameTextColor` — цвет текста названия на плашке.
-* `LabelTextScale` — масштаб шрифта названия на плашке.
+* `LabelTextScale` — масштаб шрифта названия на плашке (от 0.4 до 2.5).
+* `LabelTextThickness` — толщина / жирность шрифта на плашке (от 0 до 4, по умолчанию 1).
+* `LabelTextOutline` — темная контрастная обводка букв на плашке.
 
 ### HUD (Счётчики на экране):
 * `ShowMapTotal` — отображать счетчик текущей карты (`Map Total`).
 * `ShowGrandTotal` — отображать суммарный счетчик (`Grand Total`).
 * `ShowT0Uniques` / `ShowT1Uniques` — отображать списки выпавших T0/T1.
 * `ShowMapContributionInList` — показывать `(+X on map)` в списках.
+* `TextScale` — масштаб шрифта счетчиков (от 0.3 до 3.0).
+* `TextThickness` — толщина / жирность шрифта счетчиков (от 0 до 4, по умолчанию 1).
+* `TextOutline` — темная контрастная обводка букв для читаемости на любом фоне.
 * Цвета: `MapTotalColor`, `MainTextColor`, `T0Color`, `T1Color`.
 * Экранные позиции (X, Y) для каждого блока.
 
