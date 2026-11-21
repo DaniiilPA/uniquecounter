@@ -27,20 +27,16 @@ namespace UniqueLogger
         public ToggleNode IgnoreHideoutAndTown { get; set; } = new ToggleNode(true);
         public ToggleNode LogHistoryToFile { get; set; } = new ToggleNode(true);
 
-        // --- НАСТРОЙКИ ПОДСВЕТКИ ПЛАШЕК НА ПОЛУ (FRAME / HIGHLIGHT) ---
+        // --- ПОДСВЕТКА И РАМКИ ПЛАШЕК НА ПОЛУ (ИЗ UNIQUE-FILTER) ---
         public ToggleNode HighlightLabelsOnGround { get; set; } = new ToggleNode(true);
         public ToggleNode HighlightOnlyTiers { get; set; } = new ToggleNode(true);
-        public ToggleNode UseTierColorsForFrames { get; set; } = new ToggleNode(true);
-        public ToggleNode UseTierColorsForBackground { get; set; } = new ToggleNode(false);
-        public ColorNode HighlightBorderColor { get; set; } = new ColorNode(SharpDX.Color.Gold);
-        public RangeNode<int> HighlightBorderThickness { get; set; } = new RangeNode<int>(3, 1, 10);
-        public ColorNode HighlightBackgroundColor { get; set; } = new ColorNode(new SharpDX.Color(255, 215, 0, 140));
-        public RangeNode<int> HighlightBackgroundAlpha { get; set; } = new RangeNode<int>(140, 0, 255);
-        public ToggleNode DrawNameOnLabel { get; set; } = new ToggleNode(true);
-        public ColorNode LabelNameTextColor { get; set; } = new ColorNode(SharpDX.Color.White);
+        public ColorNode BorderColor { get; set; } = new ColorNode(SharpDX.Color.Gold);
+        public RangeNode<int> BorderThickness { get; set; } = new RangeNode<int>(3, 1, 10);
+        public ColorNode BackgroundColor { get; set; } = new ColorNode(new SharpDX.Color(255, 215, 0, 70));
+        public ToggleNode DrawNameText { get; set; } = new ToggleNode(true);
+        public ColorNode TextColor { get; set; } = new ColorNode(SharpDX.Color.White);
         public RangeNode<float> LabelTextScale { get; set; } = new RangeNode<float>(1.0f, 0.4f, 2.5f);
-        public RangeNode<int> LabelTextThickness { get; set; } = new RangeNode<int>(1, 0, 3);
-        public ToggleNode LabelTextOutline { get; set; } = new ToggleNode(true);
+        public RangeNode<int> LabelTextThickness { get; set; } = new RangeNode<int>(1, 0, 2);
 
         // --- НАСТРОЙКИ ОТОБРАЖЕНИЯ HUD (СЧЕТЧИКИ) ---
         public ToggleNode ShowMapTotal { get; set; } = new ToggleNode(true);
@@ -703,56 +699,31 @@ namespace UniqueLogger
                     // Если включен фильтр только по тирам - пропускаем предметы не из T0/T1
                     if (Settings.HighlightOnlyTiers && cachedInfo.Tier < 0) continue;
 
-                    // Определение цвета рамки
-                    SharpDX.Color borderColor = Settings.HighlightBorderColor.Value;
-                    if (Settings.UseTierColorsForFrames)
+                    // 1. Отрисовка фона плашки (как в оригинальном unique-filter)
+                    if (Settings.BackgroundColor.Value.A > 0)
                     {
-                        if (cachedInfo.Tier == 0)
-                            borderColor = Settings.T0Color.Value;
-                        else if (cachedInfo.Tier == 1)
-                            borderColor = Settings.T1Color.Value;
+                        Graphics.DrawBox(rect, Settings.BackgroundColor.Value);
                     }
 
-                    // Определение цвета фона плашки
-                    SharpDX.Color baseBgColor = Settings.HighlightBackgroundColor.Value;
-                    if (Settings.UseTierColorsForBackground)
-                    {
-                        if (cachedInfo.Tier == 0)
-                            baseBgColor = Settings.T0Color.Value;
-                        else if (cachedInfo.Tier == 1)
-                            baseBgColor = Settings.T1Color.Value;
-                    }
+                    // 2. Отрисовка рамки вокруг плашки (как в оригинальном unique-filter)
+                    Graphics.DrawFrame(rect, Settings.BorderColor.Value, Settings.BorderThickness.Value);
 
-                    int bgAlpha = Math.Clamp(Settings.HighlightBackgroundAlpha.Value, 0, 255);
-
-                    // 1. Отрисовка фона плашки (ровно один раз с точной прозрачностью)
-                    if (bgAlpha > 0)
-                    {
-                        var finalBgColor = new SharpDX.Color(baseBgColor.R, baseBgColor.G, baseBgColor.B, (byte)bgAlpha);
-                        var p1 = new System.Numerics.Vector2(rect.Left, rect.Top);
-                        var p2 = new System.Numerics.Vector2(rect.Right, rect.Bottom);
-                        Graphics.DrawBox(p1, p2, finalBgColor, 2f);
-                    }
-
-                    // 2. Отрисовка рамки вокруг плашки
-                    Graphics.DrawFrame(rect, borderColor, Settings.HighlightBorderThickness.Value);
-
-                    // 3. Отрисовка названия уника поверх нативной плашки
-                    if (Settings.DrawNameOnLabel)
+                    // 3. Отрисовка названия уника поверх нативной плашки (как в оригинальном unique-filter)
+                    if (Settings.DrawNameText.Value)
                     {
                         using (Graphics.SetTextScale(Settings.LabelTextScale.Value))
                         {
                             var textSize = Graphics.MeasureText(cachedInfo.UniqueName);
                             var textPos = new System.Numerics.Vector2(
-                                rect.X + rect.Width / 2f - textSize.X / 2f,
-                                rect.Y + rect.Height / 2f - textSize.Y / 2f
+                                rect.Center.X - textSize.X / 2f,
+                                rect.Center.Y - textSize.Y / 2f
                             );
                             DrawThickText(
                                 cachedInfo.UniqueName,
                                 textPos,
-                                Settings.LabelNameTextColor.Value,
+                                Settings.TextColor.Value,
                                 Settings.LabelTextThickness.Value,
-                                Settings.LabelTextOutline.Value
+                                false
                             );
                         }
                     }
