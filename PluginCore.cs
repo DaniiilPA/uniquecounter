@@ -47,7 +47,8 @@ namespace UniqueLogger
         public ToggleNode ShowGrandTotal { get; set; } = new ToggleNode(true);
         public ToggleNode ShowT0Uniques { get; set; } = new ToggleNode(true);
         public ToggleNode ShowT1Uniques { get; set; } = new ToggleNode(true);
-        public ToggleNode ShowMapContributionInList { get; set; } = new ToggleNode(true);
+        public ToggleNode ShowGrandTotalInList { get; set; } = new ToggleNode(false);
+        public ToggleNode ShowOnlyMapDrops { get; set; } = new ToggleNode(true);
 
         // --- ЦВЕТА И ШРИФТЫ HUD ---
         public RangeNode<float> TextScale { get; set; } = new RangeNode<float>(1.0f, 0.3f, 3.0f);
@@ -266,6 +267,8 @@ namespace UniqueLogger
         // Последняя посещенная боевая карта
         private string _lastMapName = "None";
         private int _lastMapTotal = 0;
+        private readonly ConcurrentDictionary<string, int> _lastMapT0 = new ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, int> _lastMapT1 = new ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
         private static readonly HttpClient HttpClientInstance = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
         private const string PrimaryRePoEUrl = "https://repoe-fork.github.io/uniques.json";
@@ -490,6 +493,16 @@ namespace UniqueLogger
                 {
                     _lastMapTotal = prevMap.Count;
                     _lastMapName = _currentAreaName;
+
+                    _lastMapT0.Clear();
+                    _lastMapT1.Clear();
+                    foreach (var item in prevMap.Values)
+                    {
+                        if (item.Tier == 0)
+                            _lastMapT0.AddOrUpdate(item.UniqueName, 1, (_, c) => c + 1);
+                        else if (item.Tier == 1)
+                            _lastMapT1.AddOrUpdate(item.UniqueName, 1, (_, c) => c + 1);
+                    }
                 }
             }
 
@@ -870,6 +883,11 @@ namespace UniqueLogger
                     }
                 }
             }
+            else if (isTownOrHideout && currentMapTotal == 0 && _lastMapTotal > 0)
+            {
+                currentMapT0 = new Dictionary<string, int>(_lastMapT0, StringComparer.OrdinalIgnoreCase);
+                currentMapT1 = new Dictionary<string, int>(_lastMapT1, StringComparer.OrdinalIgnoreCase);
+            }
 
             StoredStats statsSnapshot;
             lock (_statsLock)
@@ -911,54 +929,104 @@ namespace UniqueLogger
                 }
 
                 // 3. Отрисовка T0 уников
-                if (Settings.ShowT0Uniques && statsSnapshot.T0GrandTotal != null && statsSnapshot.T0GrandTotal.Count > 0)
+                if (Settings.ShowT0Uniques)
                 {
-                    var t0Pos = Settings.T0Position.Value;
-                    var headerSize = DrawThickText("T0 Uniques:", t0Pos, mainTextColor, thickness, outline);
-                    t0Pos.Y += headerSize.Y + 2;
+                    var itemsToShow = new List<(string Name, int MapCount, int GrandCount)>();
 
-                    foreach (var kvp in statsSnapshot.T0GrandTotal.OrderByDescending(x => x.Value).ThenBy(x => x.Key))
+                    if (Settings.ShowOnlyMapDrops)
                     {
-                        string itemName = kvp.Key;
-                        int count = kvp.Value;
-
-                        var nameText = $"  {itemName}";
-                        var nameSize = DrawThickText(nameText, t0Pos, t0Color, thickness, outline);
-
-                        string countText = $": {count}";
-                        if (Settings.ShowMapContributionInList && currentMapT0.TryGetValue(itemName, out var mapCount) && mapCount > 0)
+                        foreach (var kvp in currentMapT0)
                         {
-                            countText += $" (+{mapCount} on map)";
+                            int grandCount = (statsSnapshot.T0GrandTotal != null && statsSnapshot.T0GrandTotal.TryGetValue(kvp.Key, out var gc)) ? gc : kvp.Value;
+                            itemsToShow.Add((kvp.Key, kvp.Value, grandCount));
                         }
+                    }
+                    else if (statsSnapshot.T0GrandTotal != null)
+                    {
+                        foreach (var kvp in statsSnapshot.T0GrandTotal)
+                        {
+                            int mapCount = currentMapT0.TryGetValue(kvp.Key, out var mc) ? mc : 0;
+                            itemsToShow.Add((kvp.Key, mapCount, kvp.Value));
+                        }
+                    }
 
-                        DrawThickText(countText, t0Pos + new System.Numerics.Vector2(nameSize.X, 0), mainTextColor, thickness, outline);
-                        t0Pos.Y += nameSize.Y;
+                    if (itemsToShow.Count > 0)
+                    {
+                        var t0Pos = Settings.T0Position.Value;
+                        string headerText = (isTownOrHideout && currentMapTotal == 0 && _lastMapTotal > 0)
+                            ? "T0 Uniques (Last Map):"
+                            : "T0 Uniques:";
+                        var headerSize = DrawThickText(headerText, t0Pos, mainTextColor, thickness, outline);
+                        t0Pos.Y += headerSize.Y + 2;
+
+                        foreach (var item in itemsToShow.OrderByDescending(x => x.MapCount).ThenByDescending(x => x.GrandCount).ThenBy(x => x.Name))
+                        {
+                            var nameText = $"  {item.Name}";
+                            var nameSize = DrawThickText(nameText, t0Pos, t0Color, thickness, outline);
+
+                            // Изначально пишется только мап контрибьюшн
+                            string countText = $": {item.MapCount}";
+
+                            // По галочке можно выводить за все время
+                            if (Settings.ShowGrandTotalInList)
+                            {
+                                countText += $" (Total: {item.GrandCount})";
+                            }
+
+                            DrawThickText(countText, t0Pos + new System.Numerics.Vector2(nameSize.X, 0), mainTextColor, thickness, outline);
+                            t0Pos.Y += nameSize.Y;
+                        }
                     }
                 }
 
                 // 4. Отрисовка T1 уников
-                if (Settings.ShowT1Uniques && statsSnapshot.T1GrandTotal != null && statsSnapshot.T1GrandTotal.Count > 0)
+                if (Settings.ShowT1Uniques)
                 {
-                    var t1Pos = Settings.T1Position.Value;
-                    var headerSize = DrawThickText("T1 Uniques:", t1Pos, mainTextColor, thickness, outline);
-                    t1Pos.Y += headerSize.Y + 2;
+                    var itemsToShow = new List<(string Name, int MapCount, int GrandCount)>();
 
-                    foreach (var kvp in statsSnapshot.T1GrandTotal.OrderByDescending(x => x.Value).ThenBy(x => x.Key))
+                    if (Settings.ShowOnlyMapDrops)
                     {
-                        string itemName = kvp.Key;
-                        int count = kvp.Value;
-
-                        var nameText = $"  {itemName}";
-                        var nameSize = DrawThickText(nameText, t1Pos, t1Color, thickness, outline);
-
-                        string countText = $": {count}";
-                        if (Settings.ShowMapContributionInList && currentMapT1.TryGetValue(itemName, out var mapCount) && mapCount > 0)
+                        foreach (var kvp in currentMapT1)
                         {
-                            countText += $" (+{mapCount} on map)";
+                            int grandCount = (statsSnapshot.T1GrandTotal != null && statsSnapshot.T1GrandTotal.TryGetValue(kvp.Key, out var gc)) ? gc : kvp.Value;
+                            itemsToShow.Add((kvp.Key, kvp.Value, grandCount));
                         }
+                    }
+                    else if (statsSnapshot.T1GrandTotal != null)
+                    {
+                        foreach (var kvp in statsSnapshot.T1GrandTotal)
+                        {
+                            int mapCount = currentMapT1.TryGetValue(kvp.Key, out var mc) ? mc : 0;
+                            itemsToShow.Add((kvp.Key, mapCount, kvp.Value));
+                        }
+                    }
 
-                        DrawThickText(countText, t1Pos + new System.Numerics.Vector2(nameSize.X, 0), mainTextColor, thickness, outline);
-                        t1Pos.Y += nameSize.Y;
+                    if (itemsToShow.Count > 0)
+                    {
+                        var t1Pos = Settings.T1Position.Value;
+                        string headerText = (isTownOrHideout && currentMapTotal == 0 && _lastMapTotal > 0)
+                            ? "T1 Uniques (Last Map):"
+                            : "T1 Uniques:";
+                        var headerSize = DrawThickText(headerText, t1Pos, mainTextColor, thickness, outline);
+                        t1Pos.Y += headerSize.Y + 2;
+
+                        foreach (var item in itemsToShow.OrderByDescending(x => x.MapCount).ThenByDescending(x => x.GrandCount).ThenBy(x => x.Name))
+                        {
+                            var nameText = $"  {item.Name}";
+                            var nameSize = DrawThickText(nameText, t1Pos, t1Color, thickness, outline);
+
+                            // Изначально пишется только мап контрибьюшн
+                            string countText = $": {item.MapCount}";
+
+                            // По галочке можно выводить за все время
+                            if (Settings.ShowGrandTotalInList)
+                            {
+                                countText += $" (Total: {item.GrandCount})";
+                            }
+
+                            DrawThickText(countText, t1Pos + new System.Numerics.Vector2(nameSize.X, 0), mainTextColor, thickness, outline);
+                            t1Pos.Y += nameSize.Y;
+                        }
                     }
                 }
             }
@@ -972,6 +1040,8 @@ namespace UniqueLogger
             }
             _lastMapTotal = 0;
             _lastMapName = "Reset";
+            _lastMapT0.Clear();
+            _lastMapT1.Clear();
             _labelNameCache.Clear();
             LogMessage("[UniqueCounter] Статистика текущей карты сброшена.", 3);
         }
