@@ -39,7 +39,7 @@ namespace UniqueLogger
         public ToggleNode DrawNameOnLabel { get; set; } = new ToggleNode(true);
         public ColorNode LabelNameTextColor { get; set; } = new ColorNode(SharpDX.Color.White);
         public RangeNode<float> LabelTextScale { get; set; } = new RangeNode<float>(1.0f, 0.4f, 2.5f);
-        public RangeNode<int> LabelTextThickness { get; set; } = new RangeNode<int>(1, 0, 4);
+        public RangeNode<int> LabelTextThickness { get; set; } = new RangeNode<int>(2, 0, 4);
         public ToggleNode LabelTextOutline { get; set; } = new ToggleNode(true);
 
         // --- НАСТРОЙКИ ОТОБРАЖЕНИЯ HUD (СЧЕТЧИКИ) ---
@@ -52,7 +52,7 @@ namespace UniqueLogger
 
         // --- ЦВЕТА И ШРИФТЫ HUD ---
         public RangeNode<float> TextScale { get; set; } = new RangeNode<float>(1.0f, 0.3f, 3.0f);
-        public RangeNode<int> TextThickness { get; set; } = new RangeNode<int>(1, 0, 4);
+        public RangeNode<int> TextThickness { get; set; } = new RangeNode<int>(2, 0, 4);
         public ToggleNode TextOutline { get; set; } = new ToggleNode(true);
         public ColorNode MapTotalColor { get; set; } = new ColorNode(SharpDX.Color.Yellow);
         public ColorNode MainTextColor { get; set; } = new ColorNode(SharpDX.Color.White);
@@ -724,7 +724,8 @@ namespace UniqueLogger
                     }
 
                     int bgAlpha = Settings.HighlightBackgroundAlpha.Value;
-                    if (baseBgColor.A > 0 && baseBgColor.A < 255 && bgAlpha == 180)
+                    // Если в палитре цвета явно выбрана своя прозрачность в ColorEdit4 (не дефолтные 50 или 180)
+                    if (baseBgColor.A > 0 && baseBgColor.A < 255 && baseBgColor.A != 50 && baseBgColor.A != 180 && bgAlpha == 180)
                     {
                         bgAlpha = baseBgColor.A;
                     }
