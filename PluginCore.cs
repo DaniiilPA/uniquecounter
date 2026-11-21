@@ -44,7 +44,7 @@ namespace UniqueLogger
 
         // --- НАСТРОЙКИ ОТОБРАЖЕНИЯ HUD (СЧЕТЧИКИ) ---
         public ToggleNode ShowMapTotal { get; set; } = new ToggleNode(true);
-        public ToggleNode ShowGrandTotal { get; set; } = new ToggleNode(true);
+        public ToggleNode ShowGrandTotal { get; set; } = new ToggleNode(false);
         public ToggleNode ShowT0Uniques { get; set; } = new ToggleNode(true);
         public ToggleNode ShowT1Uniques { get; set; } = new ToggleNode(true);
         public ToggleNode ShowGrandTotalInList { get; set; } = new ToggleNode(false);
