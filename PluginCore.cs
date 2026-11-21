@@ -27,21 +27,32 @@ namespace UniqueLogger
         public ToggleNode IgnoreHideoutAndTown { get; set; } = new ToggleNode(true);
         public ToggleNode LogHistoryToFile { get; set; } = new ToggleNode(true);
 
-        // --- НАСТРОЙКИ ОТОБРАЖЕНИЯ HUD ---
+        // --- НАСТРОЙКИ ПОДСВЕТКИ ПЛАШЕК НА ПОЛУ (FRAME / HIGHLIGHT) ---
+        public ToggleNode HighlightLabelsOnGround { get; set; } = new ToggleNode(true);
+        public ToggleNode HighlightOnlyTiers { get; set; } = new ToggleNode(true);
+        public ToggleNode UseTierColorsForFrames { get; set; } = new ToggleNode(true);
+        public ColorNode HighlightBorderColor { get; set; } = new ColorNode(SharpDX.Color.Gold);
+        public RangeNode<int> HighlightBorderThickness { get; set; } = new RangeNode<int>(3, 1, 10);
+        public ColorNode HighlightBackgroundColor { get; set; } = new ColorNode(new SharpDX.Color(255, 215, 0, 50));
+        public ToggleNode DrawNameOnLabel { get; set; } = new ToggleNode(true);
+        public ColorNode LabelNameTextColor { get; set; } = new ColorNode(SharpDX.Color.White);
+        public RangeNode<float> LabelTextScale { get; set; } = new RangeNode<float>(1.0f, 0.4f, 2.5f);
+
+        // --- НАСТРОЙКИ ОТОБРАЖЕНИЯ HUD (СЧЕТЧИКИ) ---
         public ToggleNode ShowMapTotal { get; set; } = new ToggleNode(true);
         public ToggleNode ShowGrandTotal { get; set; } = new ToggleNode(true);
         public ToggleNode ShowT0Uniques { get; set; } = new ToggleNode(true);
         public ToggleNode ShowT1Uniques { get; set; } = new ToggleNode(true);
         public ToggleNode ShowMapContributionInList { get; set; } = new ToggleNode(true);
 
-        // --- ЦВЕТА И ШРИФТЫ ---
+        // --- ЦВЕТА И ШРИФТЫ HUD ---
         public RangeNode<float> TextScale { get; set; } = new RangeNode<float>(1.0f, 0.3f, 3.0f);
         public ColorNode MapTotalColor { get; set; } = new ColorNode(SharpDX.Color.Yellow);
         public ColorNode MainTextColor { get; set; } = new ColorNode(SharpDX.Color.White);
         public ColorNode T0Color { get; set; } = new ColorNode(SharpDX.Color.Red);
         public ColorNode T1Color { get; set; } = new ColorNode(new SharpDX.Color(255, 140, 0));
 
-        // --- ПОЗИЦИИ НА ЭКРАНЕ ---
+        // --- ПОЗИЦИИ HUD НА ЭКРАНЕ ---
         public RangeNode<System.Numerics.Vector2> MapTotalPosition { get; set; } = new RangeNode<System.Numerics.Vector2>(
             new System.Numerics.Vector2(20, 80),
             new System.Numerics.Vector2(0, 0),
@@ -122,7 +133,7 @@ namespace UniqueLogger
             "Voltaxic Rift"
         };
 
-        // Закомментированный в analyzer.py расширенный список T1
+        // Закомментированный расширенный список T1 + дополнительные ценные предметы из вайтлиста
         private static readonly HashSet<string> DefaultT1Items = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "Abberath's Hooves",
@@ -139,6 +150,7 @@ namespace UniqueLogger
             "Binds of Bloody Vengeance",
             "Bloodnotch",
             "Cloak of Defiance",
+            "Cloak of Flame",
             "Corpsewalker",
             "Cospri's Malice",
             "Darkscorn",
@@ -157,6 +169,7 @@ namespace UniqueLogger
             "Gravebind",
             "Gruthkul's Pelt",
             "Hand of Heresy",
+            "Heatshiver",
             "Heretic's Veil",
             "Hyrri's Ire",
             "Immutable Force",
@@ -167,6 +180,7 @@ namespace UniqueLogger
             "Kaom's Primacy",
             "Kintsugi",
             "Kitava's Feast",
+            "Le Heup of All",
             "Light of Lunaris",
             "Lioneye's Fall",
             "Maata's Teaching",
@@ -175,12 +189,15 @@ namespace UniqueLogger
             "Martyr of Innocence",
             "Might of the Meek",
             "Mjölner",
+            "Nimis",
             "Prism Guardian",
             "Pure Talent",
             "Ralakesh's Impatience",
             "Rathpith Globe",
+            "Replica Dragonfang's Flight",
             "Rigwald's Hunt",
             "Rigwald's Quills",
+            "Rumi's Concoction",
             "Ryslatha's Coil",
             "Seven-League Step",
             "Shade of Solaris",
@@ -218,8 +235,12 @@ namespace UniqueLogger
         private HashSet<string> _t0Items = new HashSet<string>(DefaultT0Items, StringComparer.OrdinalIgnoreCase);
         private HashSet<string> _t1Items = new HashSet<string>(DefaultT1Items, StringComparer.OrdinalIgnoreCase);
 
-        // Соответствия текстур арта -> название уника
+        // Соответствия текстур арта / путей -> название уника
         private ConcurrentDictionary<string, string> _artToUniqueMapping = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        // Кеш распознанных имен для плашек на полу (Address -> (UniqueName, Tier))
+        private readonly ConcurrentDictionary<long, (string UniqueName, int Tier)> _labelNameCache =
+            new ConcurrentDictionary<long, (string, int)>();
 
         // Постоянная сохраненная статистика (Grand Total и общие счетчики T0/T1)
         private readonly object _statsLock = new object();
@@ -228,7 +249,6 @@ namespace UniqueLogger
         private DateTime _nextSaveTime = DateTime.UtcNow.AddSeconds(5);
 
         // Трекинг по инстансам локаций (instance_id -> (entity_id -> (base, unique, tier)))
-        // Позволяет не дублировать подсчёт при телепортах в убежище и обратно в тот же портал
         private readonly ConcurrentDictionary<uint, ConcurrentDictionary<uint, (string BaseName, string UniqueName, int Tier)>> _instanceHistory =
             new ConcurrentDictionary<uint, ConcurrentDictionary<uint, (string BaseName, string UniqueName, int Tier)>>();
 
@@ -237,7 +257,7 @@ namespace UniqueLogger
         private string _currentAreaName = "Unknown Area";
         private bool _isCurrentAreaTownOrHideout = false;
 
-        // Последняя посещенная боевая карта (для отображения статистики в убежище)
+        // Последняя посещенная боевая карта
         private string _lastMapName = "None";
         private int _lastMapTotal = 0;
 
@@ -250,9 +270,8 @@ namespace UniqueLogger
 
         public override bool Initialise()
         {
-            Name = "Unique Counter";
+            Name = "Unique Counter & Filter";
 
-            // Привязка обработчиков кнопок в настройках
             if (Settings.ResetMapStats != null)
             {
                 Settings.ResetMapStats.OnPressed += ResetCurrentMapStats;
@@ -268,6 +287,7 @@ namespace UniqueLogger
                 Settings.ReloadTiersAndDatabase.OnPressed += () =>
                 {
                     LoadTiersConfig();
+                    _labelNameCache.Clear();
                     Task.Run(async () => await LoadMappingDatabaseAsync(forceReload: true));
                 };
             }
@@ -450,8 +470,8 @@ namespace UniqueLogger
 
         public override void AreaChange(AreaInstance area)
         {
-            // Сохраняем накопившиеся данные перед сменной зоны
             SaveStoredStats(force: true);
+            _labelNameCache.Clear();
 
             var areaHash = area?.Hash ?? 0;
             var areaName = area?.Name ?? "Unknown Area";
@@ -459,7 +479,6 @@ namespace UniqueLogger
 
             if (!_isCurrentAreaTownOrHideout && _currentAreaHash != 0)
             {
-                // Запоминаем статистику завершившейся карты для показа в убежище
                 if (_instanceHistory.TryGetValue(_currentAreaHash, out var prevMap))
                 {
                     _lastMapTotal = prevMap.Count;
@@ -471,7 +490,6 @@ namespace UniqueLogger
             _currentAreaName = areaName;
             _isCurrentAreaTownOrHideout = isTownOrHideout;
 
-            // Ограничиваем историю инстансов в памяти (храним последние 30 инстансов)
             if (_instanceHistory.Count > 30)
             {
                 var keysToRemove = _instanceHistory.Keys.Take(10).ToList();
@@ -499,142 +517,258 @@ namespace UniqueLogger
             uint areaHash = currentArea?.Hash ?? _currentAreaHash;
             string areaName = currentArea?.Name ?? _currentAreaName;
 
-            // Сканирование пола (если не пропускаем убежище/город)
+            // 1. Сканирование сущностей пола и учет статистики
             if (!skipScanning && areaHash != 0)
             {
-                var instanceMap = _instanceHistory.GetOrAdd(areaHash, _ => new ConcurrentDictionary<uint, (string, string, int)>());
-
-                var entities = GameController?.EntityListWrapper?.Entities;
-                if (entities != null)
-                {
-                    foreach (var entity in entities.ToList())
-                    {
-                        try
-                        {
-                            if (entity == null || !entity.IsValid) continue;
-
-                            var worldItem = entity.GetComponent<WorldItem>();
-                            if (worldItem == null) continue;
-
-                            var itemEntity = worldItem.ItemEntity;
-                            if (itemEntity == null || !itemEntity.IsValid) continue;
-
-                            var mods = itemEntity.GetComponent<Mods>();
-                            if (mods == null || mods.ItemRarity != ItemRarity.Unique) continue;
-
-                            if (Settings.IgnoreIdentifiedItems && mods.Identified) continue;
-
-                            // Если предмет с этим ID уже учтён на данной карте - пропускаем
-                            if (instanceMap.ContainsKey(entity.Id)) continue;
-
-                            var baseItemType = itemEntity.GetComponent<Base>()?.Name ?? "Unknown Base";
-                            string uniqueName = ResolveUniqueName(itemEntity, mods);
-
-                            if (string.IsNullOrEmpty(uniqueName))
-                            {
-                                uniqueName = "Unidentified";
-                            }
-
-                            // Проверяем принадлежность к тирам T0 / T1
-                            int tier = -1;
-                            string canonicalName = uniqueName;
-                            if (TryMatchTier(uniqueName, out var matchedName, out var matchedTier))
-                            {
-                                tier = matchedTier;
-                                canonicalName = matchedName;
-                            }
-
-                            // Добавляем предмет в историю текущего инстанса
-                            if (instanceMap.TryAdd(entity.Id, (baseItemType, canonicalName, tier)))
-                            {
-                                lock (_statsLock)
-                                {
-                                    _stats.GrandTotal++;
-
-                                    if (tier == 0)
-                                    {
-                                        if (_stats.T0GrandTotal.ContainsKey(canonicalName))
-                                            _stats.T0GrandTotal[canonicalName]++;
-                                        else
-                                            _stats.T0GrandTotal[canonicalName] = 1;
-                                    }
-                                    else if (tier == 1)
-                                    {
-                                        if (_stats.T1GrandTotal.ContainsKey(canonicalName))
-                                            _stats.T1GrandTotal[canonicalName]++;
-                                        else
-                                            _stats.T1GrandTotal[canonicalName] = 1;
-                                    }
-
-                                    _isDirty = true;
-                                }
-
-                                string tierTag = tier == 0 ? "T0" : (tier == 1 ? "T1" : "Other");
-                                AppendDropToHistory(areaName, areaHash, baseItemType, canonicalName, tierTag);
-                            }
-                        }
-                        catch
-                        {
-                            // Игнорируем точечные сбои чтения памяти в процессе рендера
-                        }
-                    }
-                }
+                ScanGroundEntities(areaHash, areaName);
             }
 
-            // Фоновое периодическое сохранение данных
+            // 2. Отрисовка рамочек поверх плашек предметов на полу
+            if (!skipScanning && Settings.HighlightLabelsOnGround)
+            {
+                RenderLabelsOnGround();
+            }
+
+            // 3. Фоновое периодическое сохранение данных
             if (DateTime.UtcNow >= _nextSaveTime)
             {
                 _nextSaveTime = DateTime.UtcNow.AddSeconds(4);
                 SaveStoredStats(force: false);
             }
 
-            // Отрисовка интерфейса поверх игры
+            // 4. Отрисовка статического HUD оверлея
             DrawHUD(areaHash, isHideout || isTown);
         }
 
-        private string ResolveUniqueName(Entity itemEntity, Mods mods)
+        private void ScanGroundEntities(uint areaHash, string areaName)
         {
-            string uniqueName = null;
+            var instanceMap = _instanceHistory.GetOrAdd(areaHash, _ => new ConcurrentDictionary<uint, (string, string, int)>());
 
+            var entities = GameController?.EntityListWrapper?.Entities;
+            if (entities == null) return;
+
+            foreach (var entity in entities.ToList())
+            {
+                try
+                {
+                    if (entity == null || !entity.IsValid) continue;
+
+                    var worldItem = entity.GetComponent<WorldItem>();
+                    if (worldItem == null) continue;
+
+                    var itemEntity = worldItem.ItemEntity;
+                    if (itemEntity == null || !itemEntity.IsValid) continue;
+
+                    var mods = itemEntity.GetComponent<Mods>();
+                    if (mods == null || mods.ItemRarity != ItemRarity.Unique) continue;
+
+                    if (Settings.IgnoreIdentifiedItems && mods.Identified) continue;
+
+                    if (instanceMap.ContainsKey(entity.Id)) continue;
+
+                    var baseItemType = itemEntity.GetComponent<Base>()?.Name ?? "Unknown Base";
+                    string uniqueName = ResolveUniqueName(itemEntity, mods);
+
+                    if (string.IsNullOrEmpty(uniqueName))
+                    {
+                        uniqueName = "Unidentified";
+                    }
+
+                    int tier = -1;
+                    string canonicalName = uniqueName;
+                    if (TryMatchTier(uniqueName, out var matchedName, out var matchedTier))
+                    {
+                        tier = matchedTier;
+                        canonicalName = matchedName;
+                    }
+
+                    if (instanceMap.TryAdd(entity.Id, (baseItemType, canonicalName, tier)))
+                    {
+                        lock (_statsLock)
+                        {
+                            _stats.GrandTotal++;
+
+                            if (tier == 0)
+                            {
+                                if (_stats.T0GrandTotal.ContainsKey(canonicalName))
+                                    _stats.T0GrandTotal[canonicalName]++;
+                                else
+                                    _stats.T0GrandTotal[canonicalName] = 1;
+                            }
+                            else if (tier == 1)
+                            {
+                                if (_stats.T1GrandTotal.ContainsKey(canonicalName))
+                                    _stats.T1GrandTotal[canonicalName]++;
+                                else
+                                    _stats.T1GrandTotal[canonicalName] = 1;
+                            }
+
+                            _isDirty = true;
+                        }
+
+                        string tierTag = tier == 0 ? "T0" : (tier == 1 ? "T1" : "Other");
+                        AppendDropToHistory(areaName, areaHash, baseItemType, canonicalName, tierTag);
+                    }
+                }
+                catch
+                {
+                    // Игнорируем точечные сбои чтения памяти
+                }
+            }
+        }
+
+        private void RenderLabelsOnGround()
+        {
+            var labelsOnGround = GameController?.IngameState?.IngameUi?.ItemsOnGroundLabels;
+            if (labelsOnGround == null) return;
+
+            foreach (var labelItem in labelsOnGround)
+            {
+                try
+                {
+                    if (labelItem == null) continue;
+
+                    var nativeLabel = labelItem.Label;
+                    if (nativeLabel == null || !nativeLabel.IsVisible) continue;
+
+                    var rect = nativeLabel.GetClientRect();
+                    if (rect.Width <= 0 || rect.Height <= 0) continue;
+
+                    var itemEntity = labelItem.ItemOnGround;
+                    if (itemEntity == null || !itemEntity.IsValid) continue;
+
+                    var worldItem = itemEntity.GetComponent<WorldItem>();
+                    if (worldItem == null) continue;
+
+                    var realItem = worldItem.ItemEntity;
+                    if (realItem == null || !realItem.IsValid) continue;
+
+                    var mods = realItem.GetComponent<Mods>();
+                    bool isUnique = false;
+
+                    if (mods != null && mods.ItemRarity == ItemRarity.Unique)
+                    {
+                        isUnique = true;
+                    }
+                    else if (!string.IsNullOrEmpty(realItem.Path) &&
+                            (realItem.Path.Contains("Unique", StringComparison.OrdinalIgnoreCase) ||
+                             _artToUniqueMapping.ContainsKey(CleanPathString(realItem.Path))))
+                    {
+                        isUnique = true;
+                    }
+
+                    if (!isUnique) continue;
+
+                    if (!_labelNameCache.TryGetValue(realItem.Address, out var cachedInfo))
+                    {
+                        string uniqueName = ResolveUniqueName(realItem, mods);
+                        int tier = -1;
+                        string canonicalName = uniqueName;
+
+                        if (!string.IsNullOrEmpty(uniqueName) && TryMatchTier(uniqueName, out var matchedName, out var matchedTier))
+                        {
+                            tier = matchedTier;
+                            canonicalName = matchedName;
+                        }
+
+                        cachedInfo = (canonicalName, tier);
+                        if (!string.IsNullOrEmpty(canonicalName))
+                        {
+                            _labelNameCache[realItem.Address] = cachedInfo;
+                        }
+                    }
+
+                    if (string.IsNullOrEmpty(cachedInfo.UniqueName)) continue;
+
+                    // Если включен фильтр только по тирам - пропускаем предметы не из T0/T1
+                    if (Settings.HighlightOnlyTiers && cachedInfo.Tier < 0) continue;
+
+                    // Определение цвета рамки
+                    SharpDX.Color borderColor = Settings.HighlightBorderColor.Value;
+                    if (Settings.UseTierColorsForFrames)
+                    {
+                        if (cachedInfo.Tier == 0)
+                            borderColor = Settings.T0Color.Value;
+                        else if (cachedInfo.Tier == 1)
+                            borderColor = Settings.T1Color.Value;
+                    }
+
+                    // 1. Отрисовка фона плашки (если задана прозрачность)
+                    if (Settings.HighlightBackgroundColor.Value.A > 0)
+                    {
+                        Graphics.DrawBox(rect, Settings.HighlightBackgroundColor.Value);
+                    }
+
+                    // 2. Отрисовка рамки вокруг плашки
+                    Graphics.DrawFrame(rect, borderColor, Settings.HighlightBorderThickness.Value);
+
+                    // 3. Отрисовка названия уника поверх нативной плашки
+                    if (Settings.DrawNameOnLabel)
+                    {
+                        using (Graphics.SetTextScale(Settings.LabelTextScale.Value))
+                        {
+                            var textSize = Graphics.MeasureText(cachedInfo.UniqueName);
+                            var textPos = new System.Numerics.Vector2(
+                                rect.X + rect.Width / 2f - textSize.X / 2f,
+                                rect.Y + rect.Height / 2f - textSize.Y / 2f
+                            );
+                            Graphics.DrawText(cachedInfo.UniqueName, textPos, Settings.LabelNameTextColor.Value);
+                        }
+                    }
+                }
+                catch
+                {
+                    // Игнорируем кадровые сбои интерфейса
+                }
+            }
+        }
+
+        private string ResolveUniqueName(Entity realItem, Mods mods)
+        {
             // 1. Опознанный уник
             if (!string.IsNullOrEmpty(mods?.UniqueName))
             {
-                uniqueName = CleanString(mods.UniqueName);
+                return CleanString(mods.UniqueName);
             }
 
-            // 2. Неопознанный уник: сопоставление по 2D-арту
-            if (string.IsNullOrEmpty(uniqueName))
+            // 2. Поиск по Entity Path (Metadata/Items/...)
+            if (!string.IsNullOrEmpty(realItem.Path))
             {
-                var renderItem = itemEntity.GetComponent<RenderItem>();
-                if (renderItem != null && !string.IsNullOrEmpty(renderItem.ResourcePath))
+                var cleanEntityPath = CleanPathString(realItem.Path);
+                if (_artToUniqueMapping.TryGetValue(cleanEntityPath, out var nameByPath))
+                    return nameByPath;
+            }
+
+            // 3. Поиск по 2D-арту и Visual ID
+            var renderItem = realItem.GetComponent<RenderItem>();
+            if (renderItem != null && !string.IsNullOrEmpty(renderItem.ResourcePath))
+            {
+                var rawPath = CleanPathString(renderItem.ResourcePath);
+                if (!string.IsNullOrEmpty(rawPath))
                 {
-                    var rawPath = CleanPathString(renderItem.ResourcePath);
-                    if (!string.IsNullOrEmpty(rawPath))
+                    if (_artToUniqueMapping.TryGetValue(rawPath, out var mappedName) && !string.IsNullOrEmpty(mappedName))
                     {
-                        if (_artToUniqueMapping.TryGetValue(rawPath, out var mappedName) && !string.IsNullOrEmpty(mappedName))
+                        return mappedName;
+                    }
+                    else
+                    {
+                        var fileName = Path.GetFileNameWithoutExtension(rawPath);
+                        if (!string.IsNullOrEmpty(fileName))
                         {
-                            uniqueName = mappedName;
-                        }
-                        else
-                        {
-                            var fileName = Path.GetFileNameWithoutExtension(rawPath);
-                            if (!string.IsNullOrEmpty(fileName))
+                            if (_artToUniqueMapping.TryGetValue(fileName, out var fallbackName))
                             {
-                                if (_artToUniqueMapping.TryGetValue(fileName, out var fallbackName))
-                                {
-                                    uniqueName = fallbackName;
-                                }
-                                else
-                                {
-                                    uniqueName = fileName;
-                                }
+                                return fallbackName;
+                            }
+                            else
+                            {
+                                return fileName;
                             }
                         }
                     }
                 }
             }
 
-            return uniqueName;
+            return null;
         }
 
         private bool TryMatchTier(string rawName, out string canonicalName, out int tier)
@@ -684,7 +818,6 @@ namespace UniqueLogger
 
         private void DrawHUD(uint areaHash, bool isTownOrHideout)
         {
-            // Подсчет уников на текущей локации
             int currentMapTotal = 0;
             var currentMapT0 = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             var currentMapT1 = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -804,6 +937,7 @@ namespace UniqueLogger
             }
             _lastMapTotal = 0;
             _lastMapName = "Reset";
+            _labelNameCache.Clear();
             LogMessage("[UniqueCounter] Статистика текущей карты сброшена.", 3);
         }
 
@@ -818,17 +952,40 @@ namespace UniqueLogger
             LogMessage("[UniqueCounter] Вся накопленная статистика (Grand Total) сброшена.", 3);
         }
 
+        private void RegisterMappingKey(string key, string uniqueName)
+        {
+            if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(uniqueName)) return;
+
+            var cleanKey = CleanPathString(key);
+
+            bool isReplica = uniqueName.StartsWith("Replica ", StringComparison.OrdinalIgnoreCase) ||
+                             uniqueName.StartsWith("Копия ", StringComparison.OrdinalIgnoreCase);
+
+            if (!_artToUniqueMapping.TryGetValue(cleanKey, out var existingName) ||
+                (!isReplica && existingName.StartsWith("Replica ", StringComparison.OrdinalIgnoreCase)))
+            {
+                _artToUniqueMapping[cleanKey] = uniqueName;
+
+                if (!cleanKey.EndsWith(".dds", StringComparison.OrdinalIgnoreCase))
+                {
+                    _artToUniqueMapping[cleanKey + ".dds"] = uniqueName;
+                }
+            }
+        }
+
         private void LoadHardcodedFallbacks()
         {
-            _artToUniqueMapping["art/2ditems/belts/heavybeltunique"] = "Mageblood";
-            _artToUniqueMapping["art/2ditems/belts/headhunter"] = "Headhunter";
-            _artToUniqueMapping["art/2ditems/shields/thesquire"] = "The Squire";
-            _artToUniqueMapping["art/2ditems/rings/kalandras_touch"] = "Kalandra's Touch";
-            _artToUniqueMapping["art/2ditems/amulets/defianceofdestiny"] = "Defiance of Destiny";
-            _artToUniqueMapping["art/2ditems/weapons/onehandweapons/onehandswords/ephemeraledge"] = "Ephemeral Edge";
-            _artToUniqueMapping["art/2ditems/weapons/onehandweapons/onehandaxes/soultaker"] = "Soul Taker";
-            _artToUniqueMapping["art/2ditems/weapons/onehandweapons/claws/bloodseeker"] = "Bloodseeker";
-            _artToUniqueMapping["art/2ditems/weapons/onehandweapons/daggers/divinarius"] = "Divinarius";
+            RegisterMappingKey("art/2ditems/belts/heavybeltunique", "Mageblood");
+            RegisterMappingKey("art/2ditems/belts/headhunter", "Headhunter");
+            RegisterMappingKey("art/2ditems/shields/thesquire", "The Squire");
+            RegisterMappingKey("art/2ditems/rings/kalandras_touch", "Kalandra's Touch");
+            RegisterMappingKey("art/2ditems/rings/nimis", "Nimis");
+            RegisterMappingKey("art/2ditems/amulets/defianceofdestiny", "Defiance of Destiny");
+            RegisterMappingKey("art/2ditems/weapons/onehandweapons/onehandswords/ephemeraledge", "Ephemeral Edge");
+            RegisterMappingKey("art/2ditems/weapons/onehandweapons/onehandaxes/soultaker", "Soul Taker");
+            RegisterMappingKey("art/2ditems/weapons/onehandweapons/claws/bloodseeker", "Bloodseeker");
+            RegisterMappingKey("art/2ditems/weapons/onehandweapons/daggers/divinarius", "Divinarius");
+            RegisterMappingKey("art/2ditems/armours/bodyarmours/dexintarmours/covenant", "The Covenant");
         }
 
         private async Task LoadMappingDatabaseAsync(bool forceReload)
@@ -865,26 +1022,45 @@ namespace UniqueLogger
 
                     if (repoeData != null)
                     {
-                        var tempMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
                         foreach (var kvp in repoeData)
                         {
-                            var uniqueName = kvp.Key;
-                            var itemObj = kvp.Value;
-                            if (itemObj == null) continue;
+                            var metadataPath = kvp.Key;
+                            var itemData = kvp.Value;
+                            if (itemData == null) continue;
 
-                            var visualIdentity = itemObj["visual_identity"]?.ToString();
-                            if (!string.IsNullOrEmpty(visualIdentity))
+                            string uniqueName = itemData["name"]?.ToString() ?? itemData["id"]?.ToString() ?? kvp.Key;
+                            if (string.IsNullOrEmpty(uniqueName)) continue;
+
+                            if (!string.IsNullOrEmpty(metadataPath))
                             {
-                                var cleanVisualId = CleanPathString(visualIdentity);
-                                if (!string.IsNullOrEmpty(cleanVisualId))
+                                RegisterMappingKey(metadataPath, uniqueName);
+                            }
+
+                            var visualIdentity = itemData["visual_identity"];
+                            if (visualIdentity is JObject visualObj)
+                            {
+                                string ddsFile = visualObj["dds_file"]?.ToString();
+                                if (!string.IsNullOrEmpty(ddsFile))
                                 {
-                                    tempMapping[cleanVisualId] = uniqueName;
+                                    RegisterMappingKey(ddsFile, uniqueName);
+                                }
+
+                                string visualId = visualObj["id"]?.ToString();
+                                if (!string.IsNullOrEmpty(visualId))
+                                {
+                                    RegisterMappingKey(visualId, uniqueName);
+                                }
+                            }
+                            else if (visualIdentity != null)
+                            {
+                                var visualStr = visualIdentity.ToString();
+                                if (!string.IsNullOrEmpty(visualStr))
+                                {
+                                    RegisterMappingKey(visualStr, uniqueName);
                                 }
                             }
                         }
 
-                        _artToUniqueMapping = new ConcurrentDictionary<string, string>(tempMapping, StringComparer.OrdinalIgnoreCase);
                         LogMessage($"[UniqueCounter] Успешно загружено {_artToUniqueMapping.Count} соответствий из RePoE.", 5);
                     }
                 }

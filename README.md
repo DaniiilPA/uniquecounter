@@ -1,59 +1,79 @@
-# Unique Counter (ExileApi Plugin)
+# Unique Counter & Filter (ExileApi Plugin)
 
-Автономный плагин для [ExileApi](https://github.com/exApiTools/ExileApi-Compiled) (.NET 10), предназначенный для подсчета и трекинга уникальных предметов (T0 и T1) на карте и за всё время с выводом кастомного HUD-оверлея поверх Path of Exile.
+Автономный All-in-One плагин для [ExileApi](https://github.com/exApiTools/ExileApi-Compiled) (.NET 10), объединяющий в себе **аналитический счётчик уникальных предметов (HUD)** и **визуальную подсветку плашек уников на полу (Ground Highlighter / Frames)**.
 
-> **Полная автономность:** Плагин работает локально без внешнего сервера, Docker или сторонних баз данных. Все данные сохраняются в безопасном системном хранилище и не стираются при переустановке или обновлении ExileApi.
+> **Полная автономность:** Работает локально без внешнего сервера, Docker или PostgreSQL. Все данные сохраняются в независимом системном каталоге (`%APPDATA%\PoEUniqueTracker\`) и не стираются при переустановке или обновлении ExileApi.
 
 ---
 
-## Возможности
+## Что умеет плагин
 
-* **Трекинг уников на карте (Map Uniques):**
-  * Считает, сколько всего уникальных предметов выпало на текущей локации.
-  * Защита от дублей: при телепорте в убежище и возвращении в тот же портал предметы не считаются повторно (ведется кеширование по инстансам).
-  * В убежище/городе отображает статистику последней пройденной карты: `Map Uniques: X (Last: Area Name)`.
+### 1. Подсветка плашек предметов на полу (Ground Highlighter)
+* **Распознавание на лету:** Определяет, какой именно уникальный предмет лежит на земле (даже если он неопознанный — по 2D-арту через RePoE).
+* **Кастомная рамка вокруг нативной плашки:**
+  * Рисует цветную рамку нужной толщины (`HighlightBorderThickness`).
+  * Рисует полупрозрачную заливку фона (`HighlightBackgroundColor`).
+  * **Цветовая дифференциация тиров:** Подсвечивает T0 уники (красным), а T1 (оранжевым/золотым).
+* **Текст названия прямо на плашке:**
+  * Поверх нативной плашки лут-фильтра крупно и четко пишется распознанное имя уника (например, `Mageblood` поверх неидентифицированного *Heavy Belt*).
+* **Умный фильтр:** Настройка `HighlightOnlyTiers` позволяет подсвечивать только ценные уники из списков T0 и T1, игнорируя мусорные уники.
 
-* **Общая статистика (Grand Total):**
-  * Ведет суммарный подсчет всех выбитых уникальных предметов за всё время.
-  * Сохраняется в файл `%APPDATA%\PoEUniqueTracker\stats.json`.
+### 2. Счётчик уников на карте (Map Uniques)
+* Считает, сколько всего уникальных предметов выпало на текущей локации.
+* **Защита от дублей:** при возвращении в убежище для разгрузки и заходе обратно в тот же портал предметы не считаются заново (ведется кеш инстансов).
+* В убежище и городе сохраняет и выводит результат последней завершенной карты:  
+  `Map Uniques: 18 (Last: Crimson Temple Map)`.
 
-* **Отображение списков T0 и T1:**
-  * **T0 (18 предметов):** *Mageblood, Headhunter, The Squire, Kalandra's Touch, Defiance of Destiny, Ephemeral Edge, Soul Taker, Bloodseeker, Divinarius, Bino's Kitchen Knife, Essentia Sanguis, Jiquani's Potential, Lioneye's Glare, Marohi Erqi, Rakiata's Dance, Reefbane, Varunastra, Voltaxic Rift*.
-  * **T1 (82 предмета):** Полный расширенный список редких уников (Aegis Aurora, Dialla's Malefaction, Ralakesh's Impatience, Taste of Hate, The Covenant, Doryani's Prototype, Unnatural Instinct, Inspired Learning и др.).
-  * На экране выводятся только те уники, которые уже выпадали, с количеством и пометкой вклада текущей карты (например, `Mageblood: 2 (+1 on map)`).
+### 3. Общая статистика (Grand Total)
+* Суммирует все найденные уникальные предметы за всё время / сессию.
+* Сохраняется в `%APPDATA%\PoEUniqueTracker\stats.json`.
 
-* **Распознавание неопознанных предметов:**
-  * Сканирует 2D-арты на полу через базу [RePoE](https://repoe-fork.github.io/poe1/uniques.json), скачиваемую один раз в системную папку.
-  * Имеет встроенные резервные соответствия (fallbacks) для ключевых T0 уников.
-
-* **Гибкая кастомизация тиров (`tiers.json`):**
-  * При первом старте в `%APPDATA%\PoEUniqueTracker\tiers.json` создаются списки T0 и T1. Вы можете в любой момент открыть этот файл в блокноте и добавить/удалить любые предметы без перекомпиляции плагина.
+### 4. Списки T0 и T1 уников
+* **T0 (18 предметов):** *Bino's Kitchen Knife, Bloodseeker, Defiance of Destiny, Divinarius, Ephemeral Edge, Essentia Sanguis, Headhunter, Jiquani's Potential, Kalandra's Touch, Lioneye's Glare, Mageblood, Marohi Erqi, Rakiata's Dance, Reefbane, Soul Taker, The Squire, Varunastra, Voltaxic Rift*.
+* **T1 (88 предметов):** Полный расширенный список (*Aegis Aurora, Dialla's Malefaction, Ralakesh's Impatience, Taste of Hate, The Covenant, Doryani's Prototype, Unnatural Instinct, Inspired Learning, Nimis, Seven-League Step и др.*).
+* В HUD отображаются только те уники, которые уже выпадали, с количеством и пометкой вклада текущей карты (например, `Mageblood: 2 (+1 on map)`).
 
 ---
 
 ## Где хранятся данные?
 
-Все файлы плагина хранятся вне директории ExileApi, по пути:
+Файлы лежат вне директории ExileApi:
 ```
 %APPDATA%\PoEUniqueTracker\
-(обычно: C:\Users\<Имя_Пользователя>\AppData\Roaming\PoEUniqueTracker\)
+(C:\Users\<Пользователь>\AppData\Roaming\PoEUniqueTracker\)
 ```
 
-* `stats.json` — накопительная статистика (Grand Total, счетчики T0 и T1).
-* `tiers.json` — списки отслеживаемых предметов T0 и T1.
-* `drops_history.jsonl` — построчный JSON-журнал каждого выпавшего уника с датой, названием карты, базой и тиром предмета.
-* `repoeUniques.json` — локальный кеш базы текстур RePoE.
+* `stats.json` — сохранённая статистика дропов.
+* `tiers.json` — настраиваемые списки T0 и T1. Вы можете в любой момент отредактировать этот файл в блокноте, чтобы добавить или убрать предметы.
+* `drops_history.jsonl` — журнал истории дропов.
+* `repoeUniques.json` — база артов RePoE (скачивается один раз).
 
 ---
 
-## Установка и использование
+## Настройки в игре (F12 -> Unique Counter & Filter)
 
-1. Скопируйте папку с плагином в `Plugins/Source/UniqueCounter` вашего ExileApi (или скомпилируйте через `dotnet build`).
-2. Запустите ExileApi — плагин появится в меню настроек (`F12` -> `Unique Counter`).
-3. В настройках доступны:
-   * Включение/отключение отображения блоков HUD (`ShowMapTotal`, `ShowGrandTotal`, `ShowT0Uniques`, `ShowT1Uniques`).
-   * Настройка цветов (желтый для карты, белый для текста, красный для T0, оранжевый для T1) и масштаба шрифта (`TextScale`).
-   * Настройка точных экранных координат (X, Y) для каждого блока.
-   * Игнорирование дропа в убежище и городе (`IgnoreHideoutAndTown`).
-   * Кнопки сброса: `ResetMapStats` (сбросить карту) и `ResetGrandTotal` (сбросить всю статистику).
-   * Кнопка `ReloadTiersAndDatabase` (перечитать `tiers.json` и обновить базу текстур).
+### Рамочки на полу (Ground Highlight):
+* `HighlightLabelsOnGround` — включить/выключить отрисовку рамочек вокруг предметов на полу.
+* `HighlightOnlyTiers` — подсвечивать только предметы из T0/T1 (рекомендуется).
+* `UseTierColorsForFrames` — красить рамку в цвет соответствующего тира (T0 = красный, T1 = оранжевый).
+* `HighlightBorderColor` — базовый цвет рамки.
+* `HighlightBorderThickness` — толщина рамки (от 1 до 10).
+* `HighlightBackgroundColor` — цвет и прозрачность заливки фона плашки.
+* `DrawNameOnLabel` — писать имя уника прямо поверх плашки на полу.
+* `LabelNameTextColor` — цвет текста названия на плашке.
+* `LabelTextScale` — масштаб шрифта названия на плашке.
+
+### HUD (Счётчики на экране):
+* `ShowMapTotal` — отображать счетчик текущей карты (`Map Total`).
+* `ShowGrandTotal` — отображать суммарный счетчик (`Grand Total`).
+* `ShowT0Uniques` / `ShowT1Uniques` — отображать списки выпавших T0/T1.
+* `ShowMapContributionInList` — показывать `(+X on map)` в списках.
+* Цвета: `MapTotalColor`, `MainTextColor`, `T0Color`, `T1Color`.
+* Экранные позиции (X, Y) для каждого блока.
+
+### Фильтры и действия:
+* `IgnoreHideoutAndTown` — не сканировать и не подсвечивать предметы в убежище и городе.
+* `IgnoreIdentifiedItems` — игнорировать предметы, уже опознанные свитком.
+* `ResetMapStats` — сбросить счётчик текущей карты.
+* `ResetGrandTotal` — обнулить всю накопленную общую статистику.
+* `ReloadTiersAndDatabase` — горячая перезагрузка `tiers.json` и базы текстур.
