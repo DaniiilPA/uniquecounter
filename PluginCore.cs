@@ -262,7 +262,8 @@ namespace UniqueLogger
         private int _lastMapTotal = 0;
 
         private static readonly HttpClient HttpClientInstance = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-        private const string RePoEUrl = "https://repoe-fork.github.io/poe1/uniques.json";
+        private const string PrimaryRePoEUrl = "https://repoe-fork.github.io/uniques.json";
+        private const string FallbackArtMappingUrl = "https://raw.githubusercontent.com/DetectiveSquirrel/Ground-Items-With-Linq/master/uniqueArtMapping.default.json";
         private const string RePoEFileName = "repoeUniques.json";
         private const string StatsFileName = "stats.json";
         private const string TiersFileName = "tiers.json";
@@ -1000,16 +1001,38 @@ namespace UniqueLogger
 
             if (!File.Exists(repoePath))
             {
-                try
+                var downloadUrls = new[] { PrimaryRePoEUrl, FallbackArtMappingUrl };
+                bool downloaded = false;
+
+                foreach (var url in downloadUrls)
                 {
-                    LogMessage("[UniqueCounter] Скачивание базы уникальных предметов (RePoE)...", 5);
-                    var json = await HttpClientInstance.GetStringAsync(RePoEUrl);
-                    await File.WriteAllTextAsync(repoePath, json);
-                    LogMessage("[UniqueCounter] База RePoE успешно сохранена!", 5);
+                    try
+                    {
+                        LogMessage($"[UniqueCounter] Скачивание базы уникальных предметов: {url}...", 5);
+                        using (var response = await HttpClientInstance.GetAsync(url))
+                        {
+                            if (response.IsSuccessStatusCode)
+                            {
+                                var json = await response.Content.ReadAsStringAsync();
+                                if (!string.IsNullOrWhiteSpace(json) && json.Length > 1000)
+                                {
+                                    await File.WriteAllTextAsync(repoePath, json);
+                                    LogMessage("[UniqueCounter] База предметов успешно скачана и сохранена!", 5);
+                                    downloaded = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LogError($"[UniqueCounter] Ошибка загрузки из {url}: {ex.Message}", 5);
+                    }
                 }
-                catch (Exception ex)
+
+                if (!downloaded)
                 {
-                    LogError($"[UniqueCounter] Ошибка загрузки базы RePoE: {ex.Message}", 5);
+                    LogError("[UniqueCounter] Не удалось скачать базу ни по одной ссылке, используются встроенные fallback соответствия.", 5);
                 }
             }
 
@@ -1018,55 +1041,77 @@ namespace UniqueLogger
                 try
                 {
                     var jsonText = await File.ReadAllTextAsync(repoePath);
-                    var repoeData = JsonConvert.DeserializeObject<Dictionary<string, JObject>>(jsonText);
+                    var parsedData = JsonConvert.DeserializeObject<Dictionary<string, JToken>>(jsonText);
 
-                    if (repoeData != null)
+                    if (parsedData != null)
                     {
-                        foreach (var kvp in repoeData)
+                        foreach (var kvp in parsedData)
                         {
-                            var metadataPath = kvp.Key;
-                            var itemData = kvp.Value;
-                            if (itemData == null) continue;
+                            var key = kvp.Key;
+                            var token = kvp.Value;
+                            if (token == null) continue;
 
-                            string uniqueName = itemData["name"]?.ToString() ?? itemData["id"]?.ToString() ?? kvp.Key;
-                            if (string.IsNullOrEmpty(uniqueName)) continue;
-
-                            if (!string.IsNullOrEmpty(metadataPath))
+                            if (token is JObject itemObj)
                             {
-                                RegisterMappingKey(metadataPath, uniqueName);
+                                // Формат RePoE: { "name": "...", "visual_identity": ... }
+                                string uniqueName = itemObj["name"]?.ToString() ?? itemObj["id"]?.ToString() ?? key;
+                                if (!string.IsNullOrEmpty(uniqueName))
+                                {
+                                    if (!string.IsNullOrEmpty(key))
+                                    {
+                                        RegisterMappingKey(key, uniqueName);
+                                    }
+
+                                    var visualIdentity = itemObj["visual_identity"];
+                                    if (visualIdentity is JObject visualObj)
+                                    {
+                                        string ddsFile = visualObj["dds_file"]?.ToString();
+                                        if (!string.IsNullOrEmpty(ddsFile))
+                                        {
+                                            RegisterMappingKey(ddsFile, uniqueName);
+                                        }
+
+                                        string visualId = visualObj["id"]?.ToString();
+                                        if (!string.IsNullOrEmpty(visualId))
+                                        {
+                                            RegisterMappingKey(visualId, uniqueName);
+                                        }
+                                    }
+                                    else if (visualIdentity != null)
+                                    {
+                                        var visualStr = visualIdentity.ToString();
+                                        if (!string.IsNullOrEmpty(visualStr))
+                                        {
+                                            RegisterMappingKey(visualStr, uniqueName);
+                                        }
+                                    }
+                                }
                             }
-
-                            var visualIdentity = itemData["visual_identity"];
-                            if (visualIdentity is JObject visualObj)
+                            else if (token is JArray arr)
                             {
-                                string ddsFile = visualObj["dds_file"]?.ToString();
-                                if (!string.IsNullOrEmpty(ddsFile))
+                                // Формат Ground-Items: "Art/2DItems/...dds": ["Mageblood"]
+                                foreach (var subItem in arr)
                                 {
-                                    RegisterMappingKey(ddsFile, uniqueName);
-                                }
-
-                                string visualId = visualObj["id"]?.ToString();
-                                if (!string.IsNullOrEmpty(visualId))
-                                {
-                                    RegisterMappingKey(visualId, uniqueName);
+                                    var name = subItem?.ToString();
+                                    if (!string.IsNullOrEmpty(name))
+                                    {
+                                        RegisterMappingKey(key, name);
+                                    }
                                 }
                             }
-                            else if (visualIdentity != null)
+                            else if (token.Type == JTokenType.String)
                             {
-                                var visualStr = visualIdentity.ToString();
-                                if (!string.IsNullOrEmpty(visualStr))
-                                {
-                                    RegisterMappingKey(visualStr, uniqueName);
-                                }
+                                // Простой формат: "Art/...dds": "Mageblood"
+                                RegisterMappingKey(key, token.ToString());
                             }
                         }
 
-                        LogMessage($"[UniqueCounter] Успешно загружено {_artToUniqueMapping.Count} соответствий из RePoE.", 5);
+                        LogMessage($"[UniqueCounter] Успешно загружено {_artToUniqueMapping.Count} соответствий текстур предметов.", 5);
                     }
                 }
                 catch (Exception ex)
                 {
-                    LogError($"[UniqueCounter] Ошибка парсинга базы RePoE: {ex.Message}", 5);
+                    LogError($"[UniqueCounter] Ошибка парсинга базы предметов: {ex.Message}", 5);
                 }
             }
         }
