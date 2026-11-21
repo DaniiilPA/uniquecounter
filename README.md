@@ -58,7 +58,9 @@
 * `UseTierColorsForFrames` — красить рамку в цвет соответствующего тира (T0 = красный, T1 = оранжевый).
 * `HighlightBorderColor` — базовый цвет рамки.
 * `HighlightBorderThickness` — толщина рамки (от 1 до 10).
-* `HighlightBackgroundColor` — цвет и прозрачность заливки фона плашки.
+* `HighlightBackgroundColor` — базовый цвет заливки фона плашки.
+* `HighlightBackgroundAlpha` — прозрачность/непрозрачность фона (от `0` — прозрачный, до `255` — плотный; по умолчанию `180`).
+* `UseTierColorsForBackground` — автоматически заливать фон цветом тира (красный для T0, оранжевый для T1).
 * `DrawNameOnLabel` — писать имя уника прямо поверх плашки на полу.
 * `LabelNameTextColor` — цвет текста названия на плашке.
 * `LabelTextScale` — масштаб шрифта названия на плашке (от 0.4 до 2.5).

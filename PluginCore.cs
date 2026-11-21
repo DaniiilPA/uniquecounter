@@ -31,9 +31,11 @@ namespace UniqueLogger
         public ToggleNode HighlightLabelsOnGround { get; set; } = new ToggleNode(true);
         public ToggleNode HighlightOnlyTiers { get; set; } = new ToggleNode(true);
         public ToggleNode UseTierColorsForFrames { get; set; } = new ToggleNode(true);
+        public ToggleNode UseTierColorsForBackground { get; set; } = new ToggleNode(false);
         public ColorNode HighlightBorderColor { get; set; } = new ColorNode(SharpDX.Color.Gold);
         public RangeNode<int> HighlightBorderThickness { get; set; } = new RangeNode<int>(3, 1, 10);
-        public ColorNode HighlightBackgroundColor { get; set; } = new ColorNode(new SharpDX.Color(255, 215, 0, 50));
+        public ColorNode HighlightBackgroundColor { get; set; } = new ColorNode(new SharpDX.Color(255, 215, 0, 180));
+        public RangeNode<int> HighlightBackgroundAlpha { get; set; } = new RangeNode<int>(180, 0, 255);
         public ToggleNode DrawNameOnLabel { get; set; } = new ToggleNode(true);
         public ColorNode LabelNameTextColor { get; set; } = new ColorNode(SharpDX.Color.White);
         public RangeNode<float> LabelTextScale { get; set; } = new RangeNode<float>(1.0f, 0.4f, 2.5f);
@@ -698,10 +700,30 @@ namespace UniqueLogger
                             borderColor = Settings.T1Color.Value;
                     }
 
-                    // 1. Отрисовка фона плашки (если задана прозрачность)
-                    if (Settings.HighlightBackgroundColor.Value.A > 0)
+                    // Определение цвета фона плашки
+                    SharpDX.Color baseBgColor = Settings.HighlightBackgroundColor.Value;
+                    if (Settings.UseTierColorsForBackground)
                     {
-                        Graphics.DrawBox(rect, Settings.HighlightBackgroundColor.Value);
+                        if (cachedInfo.Tier == 0)
+                            baseBgColor = Settings.T0Color.Value;
+                        else if (cachedInfo.Tier == 1)
+                            baseBgColor = Settings.T1Color.Value;
+                    }
+
+                    int bgAlpha = Settings.HighlightBackgroundAlpha.Value;
+                    if (baseBgColor.A > 0 && baseBgColor.A < 255 && bgAlpha == 180)
+                    {
+                        bgAlpha = baseBgColor.A;
+                    }
+                    var finalBgColor = new SharpDX.Color(baseBgColor.R, baseBgColor.G, baseBgColor.B, (byte)bgAlpha);
+
+                    // 1. Отрисовка фона плашки (если альфа > 0)
+                    if (bgAlpha > 0)
+                    {
+                        var p1 = new System.Numerics.Vector2(rect.Left, rect.Top);
+                        var p2 = new System.Numerics.Vector2(rect.Right, rect.Bottom);
+                        Graphics.DrawBox(p1, p2, finalBgColor, 2f);
+                        Graphics.DrawBox(rect, finalBgColor);
                     }
 
                     // 2. Отрисовка рамки вокруг плашки
