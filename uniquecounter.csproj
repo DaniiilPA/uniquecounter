@@ -12,6 +12,7 @@
     <OutputPath Condition="Exists('..\..\..\ExileCore.dll')">..\..\Compiled\$(MSBuildProjectName)\</OutputPath>
     <OutputPath Condition="!Exists('..\..\..\ExileCore.dll')">bin\Release\</OutputPath>
     
+    <exapiPackage Condition="'$(exapiPackage)' == '' and Exists('..\ExileApi-Compiled-330.10\ExileApi-Compiled-330.10\ExileCore.dll')">$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..\ExileApi-Compiled-330.10\ExileApi-Compiled-330.10'))</exapiPackage>
     <exapiPackage Condition="'$(exapiPackage)' == '' and Exists('..\Radar\ExileApi-Compiled-330.1\ExileApi-Compiled-330.1\ExileCore.dll')">$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..\Radar\ExileApi-Compiled-330.1\ExileApi-Compiled-330.1'))</exapiPackage>
     <exapiPackage Condition="'$(exapiPackage)' == '' and Exists('..\followbot2\ExileApi-Compiled-330.1\ExileApi-Compiled-330.1\ExileCore.dll')">$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..\followbot2\ExileApi-Compiled-330.1\ExileApi-Compiled-330.1'))</exapiPackage>
     <exapiPackage Condition="'$(exapiPackage)' == '' and Exists('..\..\..\ExileCore.dll')">$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..\..\..'))</exapiPackage>

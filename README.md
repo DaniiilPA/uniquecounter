@@ -1,6 +1,8 @@
-# Unique Counter & Filter (ExileApi Plugin)
+# Unique & Currency Counter (ExileApi Plugin)
 
-Автономный All-in-One плагин для [ExileApi](https://github.com/exApiTools/ExileApi-Compiled) (.NET 10), объединяющий в себе **аналитический счётчик уникальных предметов (HUD)** и **визуальную подсветку плашек уников на полу (Ground Highlighter / Frames)**.
+Автономный All-in-One плагин для [ExileApi](https://github.com/exApiTools/ExileApi-Compiled) (.NET 10, поддержка версий 330.10+), объединяющий в себе:
+1. **Аналитический счётчик уникальных предметов и валюты (HUD)**
+2. **Визуальную подсветку плашек уников на полу (Ground Highlighter / Frames)**
 
 > **Полная автономность:** Работает локально без внешнего сервера, Docker или PostgreSQL. Все данные сохраняются в независимом системном каталоге (`%APPDATA%\PoEUniqueTracker\`) и не стираются при переустановке или обновлении ExileApi.
 
@@ -8,79 +10,56 @@
 
 ## Что умеет плагин
 
-### 1. Подсветка плашек предметов на полу (Ground Highlighter)
-* **Распознавание на лету:** Определяет, какой именно уникальный предмет лежит на земле (даже если он неопознанный — по 2D-арту через RePoE).
-* **Кастомная рамка вокруг нативной плашки:**
-  * Рисует цветную рамку нужной толщины (`HighlightBorderThickness`).
-  * Рисует полупрозрачную заливку фона (`HighlightBackgroundColor`).
-  * **Цветовая дифференциация тиров:** Подсвечивает T0 уники (красным), а T1 (оранжевым/золотым).
-* **Текст названия прямо на плашке:**
-  * Поверх нативной плашки лут-фильтра крупно и четко пишется распознанное имя уника (например, `Mageblood` поверх неидентифицированного *Heavy Belt*).
-* **Умный фильтр:** Настройка `HighlightOnlyTiers` позволяет подсвечивать только ценные уники из списков T0 и T1, игнорируя мусорные уники.
+### 1. Счётчик валюты на карте (Currency Counter)
+* **Map Currency:** считает **вообще всю** валюту, выпавшую на карте (свитки мудрости, порталы, трансмутки, альты, хаосы, диваны и т.д.).
+* **Valuable Currency:** считает всю **ценную валюту** (от Chaos Orb и выше: диваны, экзи, мирроры, священные сферы, локи, ключи, вейледы и др.).
+* **Честный учёт размера стаков:** компонент `Stack.Size` честно считает стопки (например, выпало 5 свитков или 3 хаоса в одном стаке — прибавит 5 и 3, а не 1).
+* **В убежище:** статистика сохраняется для последней закрытой карты (`(Last)`).
+* Отображение каждого из двух значений включается/выключается отдельной галочкой в меню.
 
-### 2. Счётчик уников на карте (Map Uniques)
-* Считает, сколько всего уникальных предметов выпало на текущей локации.
-* **Защита от дублей:** при возвращении в убежище для разгрузки и заходе обратно в тот же портал предметы не считаются заново (ведется кеш инстансов).
-* В убежище и городе сохраняет и выводит результат последней завершенной карты:  
-  `Map Uniques: 18 (Last: Crimson Temple Map)`.
+### 2. Подсветка плашек уников на полу (Ground Highlighter)
+* **Топорно и просто, как в оригинале:**
+  * Рисует цветную рамку нужной толщины (`BorderThickness`).
+  * Заливает фон плашки цветом и прозрачностью (`BackgroundColor`, настраивается в единой палитре).
+  * Поверх нативной плашки крупно и чётко пишется имя уника (`TextColor`, `LabelTextScale`, `LabelTextThickness`).
+* **Всегда подсвечивает только T0 и T1** уники.
 
-### 3. Общая статистика (Grand Total)
-* Суммирует все найденные уникальные предметы за всё время / сессию.
-* Сохраняется в `%APPDATA%\PoEUniqueTracker\stats.json`.
-
-### 4. Списки T0 и T1 уников
-* **T0 (18 предметов):** *Bino's Kitchen Knife, Bloodseeker, Defiance of Destiny, Divinarius, Ephemeral Edge, Essentia Sanguis, Headhunter, Jiquani's Potential, Kalandra's Touch, Lioneye's Glare, Mageblood, Marohi Erqi, Rakiata's Dance, Reefbane, Soul Taker, The Squire, Varunastra, Voltaxic Rift*.
-* **T1 (88 предметов):** Полный расширенный список (*Aegis Aurora, Dialla's Malefaction, Ralakesh's Impatience, Taste of Hate, The Covenant, Doryani's Prototype, Unnatural Instinct, Inspired Learning, Nimis, Seven-League Step и др.*).
-* В HUD отображаются только те уники, которые уже выпадали, с количеством и пометкой вклада текущей карты (например, `Mageblood: 2 (+1 on map)`).
-
----
-
-## Где хранятся данные?
-
-Файлы лежат вне директории ExileApi:
-```
-%APPDATA%\PoEUniqueTracker\
-(C:\Users\<Пользователь>\AppData\Roaming\PoEUniqueTracker\)
-```
-
-* `stats.json` — сохранённая статистика дропов.
-* `tiers.json` — настраиваемые списки T0 и T1. Вы можете в любой момент отредактировать этот файл в блокноте, чтобы добавить или убрать предметы.
-* `drops_history.jsonl` — журнал истории дропов.
-* `repoeUniques.json` — база артов RePoE (скачивается один раз).
+### 3. Счётчик уников на карте (Map Uniques) и списки T0/T1
+* Считает, сколько уников выпало на текущей карте.
+* **T0 (18 предметов):** *Mageblood, Headhunter, The Squire, Defiance of Destiny, Ephemeral Edge, Soul Taker, Kalandra's Touch и др.*
+* **T1 (88 предметов):** *The Covenant, Aegis Aurora, Dialla's Malefaction, Nimis, Inspired Learning и др.*
+* По умолчанию в списках выводится только вклад текущей карты (`Mageblood: 1`).
+* По галочке `ShowGrandTotalInList` можно выводить общее число за всё время: `Mageblood: 1 (Total: 5)`.
 
 ---
 
 ## Настройки в игре (F12 -> Unique Counter & Filter)
 
-### Рамочки на полу (Ground Highlight):
-* `HighlightLabelsOnGround` — включить/выключить отрисовку рамочек вокруг предметов на полу.
-* `HighlightOnlyTiers` — подсвечивать только предметы из T0/T1 (рекомендуется).
-* `UseTierColorsForFrames` — красить рамку в цвет соответствующего тира (T0 = красный, T1 = оранжевый).
-* `HighlightBorderColor` — базовый цвет рамки.
-* `HighlightBorderThickness` — толщина рамки (от 1 до 10).
-* `HighlightBackgroundColor` — базовый цвет заливки фона плашки.
-* `HighlightBackgroundAlpha` — прозрачность/непрозрачность фона (от `0` — прозрачный, до `255` — плотный; по умолчанию `180`).
-* `UseTierColorsForBackground` — автоматически заливать фон цветом тира (красный для T0, оранжевый для T1).
-* `DrawNameOnLabel` — писать имя уника прямо поверх плашки на полу.
-* `LabelNameTextColor` — цвет текста названия на плашке.
-* `LabelTextScale` — масштаб шрифта названия на плашке (от 0.4 до 2.5).
-* `LabelTextThickness` — толщина / жирность шрифта на плашке (от 0 до 4, по умолчанию 1).
-* `LabelTextOutline` — темная контрастная обводка букв на плашке.
+### Рамки на полу (Ground Labels):
+* `HighlightLabelsOnGround` — включить/выключить отрисовку рамочек на полу.
+* `BorderColor` — цвет рамки.
+* `BorderThickness` — толщина рамки (от 1 до 10).
+* `BackgroundColor` — цвет и прозрачность заливки плашки.
+* `TextColor` — цвет текста названия на плашке.
+* `LabelTextScale` — размер шрифта названия на плашке.
+* `LabelTextThickness` — толщина шрифта (плавный ползунок от 0.0 до 2.0).
 
-### HUD (Счётчики на экране):
-* `ShowMapTotal` — отображать счетчик текущей карты (`Map Total`).
-* `ShowGrandTotal` — отображать суммарный счетчик (`Grand Total`).
+### Счётчики на экране (HUD):
+* `ShowMapTotal` — отображать счётчик уников текущей карты (`Map Uniques: X`).
+* `ShowMapCurrencyTotal` — отображать общее число валюты за карту (`Map Currency: X`).
+* `ShowMapValuableCurrency` — отображать ценную валюту от хаоса (`Valuable Currency: Y`).
+* `ShowGrandTotal` — отображать олл-тайм тотал уников за всё время (`Grand Total: X`).
 * `ShowT0Uniques` / `ShowT1Uniques` — отображать списки выпавших T0/T1.
-* `ShowMapContributionInList` — показывать `(+X on map)` в списках.
-* `TextScale` — масштаб шрифта счетчиков (от 0.3 до 3.0).
-* `TextThickness` — толщина / жирность шрифта счетчиков (от 0 до 4, по умолчанию 1).
-* `TextOutline` — темная контрастная обводка букв для читаемости на любом фоне.
-* Цвета: `MapTotalColor`, `MainTextColor`, `T0Color`, `T1Color`.
-* Экранные позиции (X, Y) для каждого блока.
+* `ShowGrandTotalInList` — дописывать `(Total: X)` в списках уников.
+* `ShowOnlyMapDrops` — показывать в списке только уники текущей карты.
+* `TextScale` — размер шрифта HUD.
+* `TextThickness` — плавный регулятор толщины шрифта (0.0 — тонкий, 0.5 — средний, 1.0+ — жирный).
+* `TextOutline` — тёмная обводка для контраста.
+* Цвета и позиции блоков настраиваются индивидуально.
 
 ### Фильтры и действия:
-* `IgnoreHideoutAndTown` — не сканировать и не подсвечивать предметы в убежище и городе.
-* `IgnoreIdentifiedItems` — игнорировать предметы, уже опознанные свитком.
-* `ResetMapStats` — сбросить счётчик текущей карты.
+* `IgnoreHideoutAndTown` — не сканировать предметы в убежище и городе.
+* `IgnoreIdentifiedItems` — игнорировать опознанные свиткам предметы.
+* `ResetMapStats` — сбросить счётчики текущей карты (уники и валюту).
 * `ResetGrandTotal` — обнулить всю накопленную общую статистику.
 * `ReloadTiersAndDatabase` — горячая перезагрузка `tiers.json` и базы текстур.

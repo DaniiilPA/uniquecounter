@@ -44,6 +44,22 @@ namespace UniqueLogger
         public ToggleNode ShowGrandTotalInList { get; set; } = new ToggleNode(false);
         public ToggleNode ShowOnlyMapDrops { get; set; } = new ToggleNode(true);
 
+        // --- СЧЕТЧИКИ ВАЛЮТЫ НА КАРТЕ (CURRENCY COUNTER) ---
+        public ToggleNode ShowMapCurrencyTotal { get; set; } = new ToggleNode(true);
+        public ToggleNode ShowMapValuableCurrency { get; set; } = new ToggleNode(true);
+        public ColorNode MapCurrencyTotalColor { get; set; } = new ColorNode(SharpDX.Color.SkyBlue);
+        public ColorNode MapValuableCurrencyColor { get; set; } = new ColorNode(new SharpDX.Color(255, 165, 0)); // Gold/Orange
+        public RangeNode<System.Numerics.Vector2> MapCurrencyTotalPosition { get; set; } = new RangeNode<System.Numerics.Vector2>(
+            new System.Numerics.Vector2(20, 105),
+            new System.Numerics.Vector2(0, 0),
+            new System.Numerics.Vector2(3840, 2160)
+        );
+        public RangeNode<System.Numerics.Vector2> MapValuableCurrencyPosition { get; set; } = new RangeNode<System.Numerics.Vector2>(
+            new System.Numerics.Vector2(20, 130),
+            new System.Numerics.Vector2(0, 0),
+            new System.Numerics.Vector2(3840, 2160)
+        );
+
         // --- ЦВЕТА И ШРИФТЫ HUD ---
         public RangeNode<float> TextScale { get; set; } = new RangeNode<float>(1.0f, 0.3f, 3.0f);
         public RangeNode<float> TextThickness { get; set; } = new RangeNode<float>(0.5f, 0.0f, 2.0f);
@@ -61,19 +77,19 @@ namespace UniqueLogger
         );
 
         public RangeNode<System.Numerics.Vector2> GrandTotalPosition { get; set; } = new RangeNode<System.Numerics.Vector2>(
-            new System.Numerics.Vector2(20, 105),
+            new System.Numerics.Vector2(20, 260),
             new System.Numerics.Vector2(0, 0),
             new System.Numerics.Vector2(3840, 2160)
         );
 
         public RangeNode<System.Numerics.Vector2> T0Position { get; set; } = new RangeNode<System.Numerics.Vector2>(
-            new System.Numerics.Vector2(20, 135),
+            new System.Numerics.Vector2(20, 160),
             new System.Numerics.Vector2(0, 0),
             new System.Numerics.Vector2(3840, 2160)
         );
 
         public RangeNode<System.Numerics.Vector2> T1Position { get; set; } = new RangeNode<System.Numerics.Vector2>(
-            new System.Numerics.Vector2(20, 290),
+            new System.Numerics.Vector2(20, 310),
             new System.Numerics.Vector2(0, 0),
             new System.Numerics.Vector2(3840, 2160)
         );
@@ -107,6 +123,9 @@ namespace UniqueLogger
 
         [JsonProperty("T1")]
         public List<string> T1 { get; set; } = new List<string>();
+
+        [JsonProperty("ValuableCurrency")]
+        public List<string> ValuableCurrency { get; set; } = new List<string>();
     }
 
     public class UniqueLogger : BaseSettingsPlugin<UniqueLoggerSettings>
@@ -232,9 +251,59 @@ namespace UniqueLogger
             "Zerphi's Last Breath"
         };
 
+        // Дефолтный список ценной валюты (от Chaos Orb и выше)
+        private static readonly HashSet<string> DefaultValuableCurrency = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Chaos Orb",
+            "Divine Orb",
+            "Exalted Orb",
+            "Mirror of Kalandra",
+            "Mirror Shard",
+            "Sacred Orb",
+            "Orb of Annulment",
+            "Annulment Shard",
+            "Ancient Orb",
+            "Ancient Shard",
+            "Exalted Shard",
+            "Fracturing Orb",
+            "Fracturing Shard",
+            "Veiled Orb",
+            "Veiled Chaos Orb",
+            "Awakener's Orb",
+            "Crusader's Exalted Orb",
+            "Hunter's Exalted Orb",
+            "Redeemer's Exalted Orb",
+            "Warlord's Exalted Orb",
+            "Orb of Dominance",
+            "Eldritch Chaos Orb",
+            "Eldritch Exalted Orb",
+            "Eldritch Orb of Annulment",
+            "Grand Eldritch Ichor",
+            "Exceptional Eldritch Ichor",
+            "Grand Eldritch Ember",
+            "Exceptional Eldritch Ember",
+            "Orb of Conflict",
+            "Hinekora's Lock",
+            "Tailoring Orb",
+            "Tempering Orb",
+            "Valdo's Puzzle Box",
+            "Voidborn Reliquary Key",
+            "Apollyon's Reliquary Key",
+            "Forgotten Reliquary Key",
+            "Visage Reliquary Key",
+            "Cosmic Reliquary Key",
+            "Decay Reliquary Key",
+            "Shiny Reliquary Key",
+            "Timeworn Reliquary Key",
+            "Votive Hoard",
+            "Prime Regrading Lens",
+            "Secondary Regrading Lens"
+        };
+
         // Активные наборы тиров (загружаемые из tiers.json либо дефолтные)
         private HashSet<string> _t0Items = new HashSet<string>(DefaultT0Items, StringComparer.OrdinalIgnoreCase);
         private HashSet<string> _t1Items = new HashSet<string>(DefaultT1Items, StringComparer.OrdinalIgnoreCase);
+        private HashSet<string> _valuableCurrencyItems = new HashSet<string>(DefaultValuableCurrency, StringComparer.OrdinalIgnoreCase);
 
         // Соответствия текстур арта / путей -> название уника
         private ConcurrentDictionary<string, string> _artToUniqueMapping = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -253,6 +322,10 @@ namespace UniqueLogger
         private readonly ConcurrentDictionary<uint, ConcurrentDictionary<uint, (string BaseName, string UniqueName, int Tier)>> _instanceHistory =
             new ConcurrentDictionary<uint, ConcurrentDictionary<uint, (string BaseName, string UniqueName, int Tier)>>();
 
+        // Трекинг валюты по инстансам: instance_id -> (entity_id -> (name, stackSize, isValuable))
+        private readonly ConcurrentDictionary<uint, ConcurrentDictionary<uint, (string Name, int StackSize, bool IsValuable)>> _instanceCurrencyHistory =
+            new ConcurrentDictionary<uint, ConcurrentDictionary<uint, (string Name, int StackSize, bool IsValuable)>>();
+
         // Текущая зона
         private uint _currentAreaHash = 0;
         private string _currentAreaName = "Unknown Area";
@@ -261,6 +334,8 @@ namespace UniqueLogger
         // Последняя посещенная боевая карта
         private string _lastMapName = "None";
         private int _lastMapTotal = 0;
+        private int _lastMapCurrencyTotal = 0;
+        private int _lastMapValuableCurrency = 0;
         private readonly ConcurrentDictionary<string, int> _lastMapT0 = new ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, int> _lastMapT1 = new ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
@@ -345,12 +420,14 @@ namespace UniqueLogger
                     var defaultTiers = new TierConfigFile
                     {
                         T0 = DefaultT0Items.OrderBy(x => x).ToList(),
-                        T1 = DefaultT1Items.OrderBy(x => x).ToList()
+                        T1 = DefaultT1Items.OrderBy(x => x).ToList(),
+                        ValuableCurrency = DefaultValuableCurrency.OrderBy(x => x).ToList()
                     };
                     var json = JsonConvert.SerializeObject(defaultTiers, Formatting.Indented);
                     File.WriteAllText(tiersPath, json);
                     _t0Items = new HashSet<string>(DefaultT0Items, StringComparer.OrdinalIgnoreCase);
                     _t1Items = new HashSet<string>(DefaultT1Items, StringComparer.OrdinalIgnoreCase);
+                    _valuableCurrencyItems = new HashSet<string>(DefaultValuableCurrency, StringComparer.OrdinalIgnoreCase);
                     LogMessage($"[UniqueCounter] Создан файл тиров: {tiersPath}", 5);
                 }
                 else
@@ -361,7 +438,15 @@ namespace UniqueLogger
                     {
                         _t0Items = new HashSet<string>(cfg.T0 ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
                         _t1Items = new HashSet<string>(cfg.T1 ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
-                        LogMessage($"[UniqueCounter] Загружено из tiers.json: {_t0Items.Count} T0, {_t1Items.Count} T1", 5);
+                        if (cfg.ValuableCurrency != null && cfg.ValuableCurrency.Count > 0)
+                        {
+                            _valuableCurrencyItems = new HashSet<string>(cfg.ValuableCurrency, StringComparer.OrdinalIgnoreCase);
+                        }
+                        else
+                        {
+                            _valuableCurrencyItems = new HashSet<string>(DefaultValuableCurrency, StringComparer.OrdinalIgnoreCase);
+                        }
+                        LogMessage($"[UniqueCounter] Загружено из tiers.json: {_t0Items.Count} T0, {_t1Items.Count} T1, {_valuableCurrencyItems.Count} ценной валюты", 5);
                     }
                 }
             }
@@ -498,6 +583,20 @@ namespace UniqueLogger
                             _lastMapT1.AddOrUpdate(item.UniqueName, 1, (_, c) => c + 1);
                     }
                 }
+
+                if (_instanceCurrencyHistory.TryGetValue(_currentAreaHash, out var prevCurrencyMap))
+                {
+                    _lastMapCurrencyTotal = 0;
+                    _lastMapValuableCurrency = 0;
+                    foreach (var curr in prevCurrencyMap.Values)
+                    {
+                        _lastMapCurrencyTotal += curr.StackSize;
+                        if (curr.IsValuable)
+                        {
+                            _lastMapValuableCurrency += curr.StackSize;
+                        }
+                    }
+                }
             }
 
             _currentAreaHash = areaHash;
@@ -512,6 +611,18 @@ namespace UniqueLogger
                     if (k != _currentAreaHash)
                     {
                         _instanceHistory.TryRemove(k, out _);
+                    }
+                }
+            }
+
+            if (_instanceCurrencyHistory.Count > 30)
+            {
+                var keysToRemove = _instanceCurrencyHistory.Keys.Take(10).ToList();
+                foreach (var k in keysToRemove)
+                {
+                    if (k != _currentAreaHash)
+                    {
+                        _instanceCurrencyHistory.TryRemove(k, out _);
                     }
                 }
             }
@@ -557,6 +668,7 @@ namespace UniqueLogger
         private void ScanGroundEntities(uint areaHash, string areaName)
         {
             var instanceMap = _instanceHistory.GetOrAdd(areaHash, _ => new ConcurrentDictionary<uint, (string, string, int)>());
+            var instanceCurrencyMap = _instanceCurrencyHistory.GetOrAdd(areaHash, _ => new ConcurrentDictionary<uint, (string, int, bool)>());
 
             var entities = GameController?.EntityListWrapper?.Entities;
             if (entities == null) return;
@@ -574,54 +686,69 @@ namespace UniqueLogger
                     if (itemEntity == null || !itemEntity.IsValid) continue;
 
                     var mods = itemEntity.GetComponent<Mods>();
-                    if (mods == null || mods.ItemRarity != ItemRarity.Unique) continue;
 
-                    if (Settings.IgnoreIdentifiedItems && mods.Identified) continue;
-
-                    if (instanceMap.ContainsKey(entity.Id)) continue;
-
-                    var baseItemType = itemEntity.GetComponent<Base>()?.Name ?? "Unknown Base";
-                    string uniqueName = ResolveUniqueName(itemEntity, mods);
-
-                    if (string.IsNullOrEmpty(uniqueName))
+                    // 1. Проверяем уникальные предметы
+                    if (mods != null && mods.ItemRarity == ItemRarity.Unique)
                     {
-                        uniqueName = "Unidentified";
-                    }
+                        if (Settings.IgnoreIdentifiedItems && mods.Identified) continue;
+                        if (instanceMap.ContainsKey(entity.Id)) continue;
 
-                    int tier = -1;
-                    string canonicalName = uniqueName;
-                    if (TryMatchTier(uniqueName, out var matchedName, out var matchedTier))
-                    {
-                        tier = matchedTier;
-                        canonicalName = matchedName;
-                    }
+                        var baseItemType = itemEntity.GetComponent<Base>()?.Name ?? "Unknown Base";
+                        string uniqueName = ResolveUniqueName(itemEntity, mods);
 
-                    if (instanceMap.TryAdd(entity.Id, (baseItemType, canonicalName, tier)))
-                    {
-                        lock (_statsLock)
+                        if (string.IsNullOrEmpty(uniqueName))
                         {
-                            _stats.GrandTotal++;
-
-                            if (tier == 0)
-                            {
-                                if (_stats.T0GrandTotal.ContainsKey(canonicalName))
-                                    _stats.T0GrandTotal[canonicalName]++;
-                                else
-                                    _stats.T0GrandTotal[canonicalName] = 1;
-                            }
-                            else if (tier == 1)
-                            {
-                                if (_stats.T1GrandTotal.ContainsKey(canonicalName))
-                                    _stats.T1GrandTotal[canonicalName]++;
-                                else
-                                    _stats.T1GrandTotal[canonicalName] = 1;
-                            }
-
-                            _isDirty = true;
+                            uniqueName = "Unidentified";
                         }
 
-                        string tierTag = tier == 0 ? "T0" : (tier == 1 ? "T1" : "Other");
-                        AppendDropToHistory(areaName, areaHash, baseItemType, canonicalName, tierTag);
+                        int tier = -1;
+                        string canonicalName = uniqueName;
+                        if (TryMatchTier(uniqueName, out var matchedName, out var matchedTier))
+                        {
+                            tier = matchedTier;
+                            canonicalName = matchedName;
+                        }
+
+                        if (instanceMap.TryAdd(entity.Id, (baseItemType, canonicalName, tier)))
+                        {
+                            lock (_statsLock)
+                            {
+                                _stats.GrandTotal++;
+
+                                if (tier == 0)
+                                {
+                                    if (_stats.T0GrandTotal.ContainsKey(canonicalName))
+                                        _stats.T0GrandTotal[canonicalName]++;
+                                    else
+                                        _stats.T0GrandTotal[canonicalName] = 1;
+                                }
+                                else if (tier == 1)
+                                {
+                                    if (_stats.T1GrandTotal.ContainsKey(canonicalName))
+                                        _stats.T1GrandTotal[canonicalName]++;
+                                    else
+                                        _stats.T1GrandTotal[canonicalName] = 1;
+                                }
+
+                                _isDirty = true;
+                            }
+
+                            string tierTag = tier == 0 ? "T0" : (tier == 1 ? "T1" : "Other");
+                            AppendDropToHistory(areaName, areaHash, baseItemType, canonicalName, tierTag);
+                        }
+                    }
+                    // 2. Проверяем предметы валюты (любая валюта: от Scroll of Wisdom до Mirror)
+                    else if (IsCurrencyItem(itemEntity, out var currName, out var stackSize, out var isValuable))
+                    {
+                        if (instanceCurrencyMap.ContainsKey(entity.Id)) continue;
+
+                        if (instanceCurrencyMap.TryAdd(entity.Id, (currName, stackSize, isValuable)))
+                        {
+                            if (isValuable && Settings.LogHistoryToFile)
+                            {
+                                AppendDropToHistory(areaName, areaHash, "Currency", $"{currName} (x{stackSize})", "ValuableCurrency");
+                            }
+                        }
                     }
                 }
                 catch
@@ -826,6 +953,8 @@ namespace UniqueLogger
         private void DrawHUD(uint areaHash, bool isTownOrHideout)
         {
             int currentMapTotal = 0;
+            int currentMapCurrencyTotal = 0;
+            int currentMapValuableCurrency = 0;
             var currentMapT0 = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             var currentMapT1 = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
@@ -848,6 +977,23 @@ namespace UniqueLogger
             {
                 currentMapT0 = new Dictionary<string, int>(_lastMapT0, StringComparer.OrdinalIgnoreCase);
                 currentMapT1 = new Dictionary<string, int>(_lastMapT1, StringComparer.OrdinalIgnoreCase);
+            }
+
+            if (_instanceCurrencyHistory.TryGetValue(areaHash, out var currentCurrencyInstance))
+            {
+                foreach (var curr in currentCurrencyInstance.Values)
+                {
+                    currentMapCurrencyTotal += curr.StackSize;
+                    if (curr.IsValuable)
+                    {
+                        currentMapValuableCurrency += curr.StackSize;
+                    }
+                }
+            }
+            else if (isTownOrHideout && currentMapCurrencyTotal == 0 && _lastMapCurrencyTotal > 0)
+            {
+                currentMapCurrencyTotal = _lastMapCurrencyTotal;
+                currentMapValuableCurrency = _lastMapValuableCurrency;
             }
 
             StoredStats statsSnapshot;
@@ -881,7 +1027,27 @@ namespace UniqueLogger
                     DrawThickText(mapText, mapPos, mapTotalColor, thickness, outline);
                 }
 
-                // 2. Отрисовка общего числа (Grand Total)
+                // 2. Отрисовка общего количества валюты за карту (Map Currency Total)
+                if (Settings.ShowMapCurrencyTotal)
+                {
+                    var currPos = Settings.MapCurrencyTotalPosition.Value;
+                    string currText = (isTownOrHideout && currentMapCurrencyTotal == 0 && _lastMapCurrencyTotal > 0)
+                        ? $"Map Currency: {_lastMapCurrencyTotal} (Last)"
+                        : $"Map Currency: {currentMapCurrencyTotal}";
+                    DrawThickText(currText, currPos, Settings.MapCurrencyTotalColor.Value, thickness, outline);
+                }
+
+                // 3. Отрисовка ценной валюты за карту (от Chaos и выше)
+                if (Settings.ShowMapValuableCurrency)
+                {
+                    var valPos = Settings.MapValuableCurrencyPosition.Value;
+                    string valText = (isTownOrHideout && currentMapValuableCurrency == 0 && _lastMapValuableCurrency > 0)
+                        ? $"Valuable Currency: {_lastMapValuableCurrency} (Last)"
+                        : $"Valuable Currency: {currentMapValuableCurrency}";
+                    DrawThickText(valText, valPos, Settings.MapValuableCurrencyColor.Value, thickness, outline);
+                }
+
+                // 4. Отрисовка общего числа уников за всё время (Grand Total)
                 if (Settings.ShowGrandTotal)
                 {
                     var grandPos = Settings.GrandTotalPosition.Value;
@@ -998,13 +1164,16 @@ namespace UniqueLogger
             if (_currentAreaHash != 0)
             {
                 _instanceHistory.TryRemove(_currentAreaHash, out _);
+                _instanceCurrencyHistory.TryRemove(_currentAreaHash, out _);
             }
             _lastMapTotal = 0;
+            _lastMapCurrencyTotal = 0;
+            _lastMapValuableCurrency = 0;
             _lastMapName = "Reset";
             _lastMapT0.Clear();
             _lastMapT1.Clear();
             _labelNameCache.Clear();
-            LogMessage("[UniqueCounter] Статистика текущей карты сброшена.", 3);
+            LogMessage("[UniqueCounter] Статистика текущей карты (уники и валюта) сброшена.", 3);
         }
 
         private void ResetLifetimeStats()
@@ -1230,6 +1399,72 @@ namespace UniqueLogger
             Graphics.DrawText(text, position, color);
 
             return new System.Numerics.Vector2(size.X + (thickness > 0.5f ? 1 : 0), size.Y);
+        }
+
+        private bool IsCurrencyItem(Entity itemEntity, out string currencyName, out int stackSize, out bool isValuable)
+        {
+            currencyName = string.Empty;
+            stackSize = 1;
+            isValuable = false;
+
+            if (itemEntity == null || !itemEntity.IsValid) return false;
+
+            string path = itemEntity.Path;
+            if (string.IsNullOrEmpty(path)) return false;
+
+            var bit = GameController?.Files?.BaseItemTypes?.Translate(path);
+            string className = bit?.ClassName;
+            string baseName = bit?.BaseName;
+
+            bool isCurrency = false;
+            if (!string.IsNullOrEmpty(className) &&
+                (className.Equals("StackableCurrency", StringComparison.OrdinalIgnoreCase) ||
+                 className.Contains("Currency", StringComparison.OrdinalIgnoreCase)))
+            {
+                isCurrency = true;
+            }
+            else if (path.Contains("Metadata/Items/Currency", StringComparison.OrdinalIgnoreCase))
+            {
+                isCurrency = true;
+            }
+
+            if (!isCurrency) return false;
+
+            currencyName = !string.IsNullOrEmpty(baseName) ? baseName : Path.GetFileNameWithoutExtension(path);
+
+            var stack = itemEntity.GetComponent<Stack>();
+            if (stack != null && stack.Size > 0)
+            {
+                stackSize = stack.Size;
+            }
+
+            isValuable = IsValuableCurrency(currencyName, path);
+            return true;
+        }
+
+        private bool IsValuableCurrency(string name, string path)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+
+            if (_valuableCurrencyItems.Contains(name))
+                return true;
+
+            // Быстрые проверки по ключевым словам для редких/новых валют
+            if (name.Contains("Divine", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("Exalted", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("Mirror", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("Chaos Orb", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("Hinekora", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("Fracturing", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("Awakener", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("Reliquary Key", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("Valdo", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("Sacred Orb", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return false;
         }
 
         private static string CleanString(string str)
