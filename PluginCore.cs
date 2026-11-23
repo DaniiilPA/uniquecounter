@@ -1432,6 +1432,18 @@ namespace UniqueLogger
 
             currencyName = !string.IsNullOrEmpty(baseName) ? baseName : Path.GetFileNameWithoutExtension(path);
 
+            // Исключаем золото (Gold / Золото с мобов) из подсчета валюты
+            if (path.EndsWith("/Gold", StringComparison.OrdinalIgnoreCase) ||
+                path.EndsWith("CurrencyGold", StringComparison.OrdinalIgnoreCase) ||
+                path.Contains("/Currency/Gold", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(currencyName, "Gold", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(currencyName, "Золото", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(baseName, "Gold", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(baseName, "Золото", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
             var stack = itemEntity.GetComponent<Stack>();
             if (stack != null && stack.Size > 0)
             {
